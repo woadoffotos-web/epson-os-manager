@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  password    String   @default("123456")
+  role        String   @default("TECNICO") // ADMIN, GERENTE, TECNICO, ATENDENTE
+  permissions String   @default("[]")      // JSON array of specific permissions
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignedOrders   WorkOrder[]        @relation("TechnicianOrders")
+  technicianCourses TechnicianCourse[]
+  auditLogs        AuditLog[]
+}
+
+model Situation {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  color      String   @default("#e2e8f0")
+  isCanceled Boolean  @default(false) // If true, excluded from SLA metrics (ex: "Anulada")
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  workOrders WorkOrder[]
+}
+
+model Location {
+  id          String   @id @default(uuid())
+  code        String   @unique // ex: "1A", "16H"
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workOrders WorkOrder[]
+}
+
+model EquipmentType {
+  id        String   @id @default(uuid())
+  name      String   @unique // ex: "EcoTank", "Projetor", "Térmica", "Comercial"
+  createdAt DateTime @default(now())
+
+  models EquipmentModel[]
+}
+
+model EquipmentModel {
+  id        String        @id @default(uuid())
+  name      String        @unique // ex: "L3250", "CO-W01"
+  typeId    String
+  type      EquipmentType @relation(fields: [typeId], references: [id])
+  createdAt DateTime      @default(now())
+
+  workOrders WorkOrder[]
+}
+
+model Course {
+  id          String   @id @default(uuid())
+  title       String   @unique
+  description String?
+  isMandatory Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  technicianCourses TechnicianCourse[]
+}
+
+model TechnicianCourse {
+  id           String    @id @default(uuid())
+  technicianId String
+  technician   User      @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  courseId     String
+  course       Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  completed    Boolean   @default(false)
+  completedAt  DateTime?
+
+  @@unique([technicianId, courseId])
+}
+
+model AnnualAudit {
+  id         String   @id @default(uuid())
+  fiscalYear Int      @unique // ex: 2026
+  score      Float    @default(80.0) // 0 to 100
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model WorkOrder {
+  id           String          @id @default(uuid())
+  osNumber     String          @unique
+  modelId      String
+  model        EquipmentModel  @relation(fields: [modelId], references: [id])
+  serialNumber String
+  situationId  String
+  situation    Situation       @relation(fields: [situationId], references: [id])
+  locationId   String?
+  location     Location?       @relation(fields: [locationId], references: [id])
+
+  // Dates and milestones
+  entryDate         DateTime
+  diagnosisDate     DateTime?
+  emailSentDate     DateTime?
+  emailReceivedDate DateTime?
+
+  // Parts
+  partsOrderDate    DateTime?
+  partsInvoiceDate  DateTime? // Faturamento
+  partsHeadQty      Int       @default(0) // 0 to 10
+  partsTotalQty     Int       @default(0) // 0 to 30
+  partsArrivalDate  DateTime?
+  partsChangeInk    Boolean   @default(false) // Trocar Tinta (Sim/Não)
+
+  // Repair
+  repairDate        DateTime?
+  isRecurrent       Boolean   @default(false)
+  tmfDays           Int?
+
+  // Notices
+  notice1Date       DateTime?
+  notice2Date       DateTime?
+  notice3Date       DateTime?
+
+  // System and Physical Exit
+  systemExitDate    DateTime?
+  exitDate          DateTime?
+
+  // Assignment & Notes
+  technicianId      String?
+  technician        User?     @relation("TechnicianOrders", fields: [technicianId], references: [id])
+  notes             String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  userName    String
+  userEmail   String?
+  action      String   // CREATE, UPDATE, DELETE
+  entity      String   // WorkOrder, Course, Situation, etc.
+  entityId    String
+  details     String
+  oldValues   String?  // JSON
+  newValues   String?  // JSON
+  createdAt   DateTime @default(now())
+}
+
+model RecordLock {
+  id         String   @id @default(uuid())
+  entityType String   // e.g. "WorkOrder"
+  entityId   String   // ID do registro bloqueado
+  userId     String   // ID do usuário que iniciou a edição
+  userName   String   // Nome do usuário para exibição
+  userEmail  String?
+  lockedAt   DateTime @default(now())
+  expiresAt  DateTime // Data/hora de expiração automática (TTL)
+
+  @@unique([entityType, entityId])
+}

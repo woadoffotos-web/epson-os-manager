@@ -14,6 +14,8 @@
     "db:restore": "node prisma/restore-data.js"
   },
   "dependencies": {
+    "@neon/config": "^1.9.4",
+    "@neon/env": "^1.6.5",
     "@prisma/client": "^5.21.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",

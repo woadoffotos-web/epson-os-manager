@@ -28,21 +28,36 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  // Carregar sessão salva no navegador
+  // Carregar e validar sessão real via JWT com o servidor
   useEffect(() => {
-    try {
-      const savedUserStr = localStorage.getItem('epson_auth_user');
-      if (savedUserStr) {
-        const parsed = JSON.parse(savedUserStr);
-        if (parsed && parsed.email) {
-          setCurrentUser(parsed);
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth?action=me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setCurrentUser(data.user);
+            setIsAuthLoading(false);
+            return;
+          }
         }
+
+        // Fallback para cache local se offline ou inicializando
+        const savedUserStr = localStorage.getItem('epson_auth_user');
+        if (savedUserStr) {
+          const parsed = JSON.parse(savedUserStr);
+          if (parsed && parsed.email) {
+            setCurrentUser(parsed);
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao recuperar sessão:', e);
+      } finally {
+        setIsAuthLoading(false);
       }
-    } catch (e) {
-      console.error('Erro ao recuperar sessão:', e);
-    } finally {
-      setIsAuthLoading(false);
-    }
+    };
+
+    checkSession();
   }, []);
 
   const fetchUsers = async () => {
@@ -70,7 +85,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' }),
+      });
+    } catch (e) {
+      console.error(e);
+    }
     setCurrentUser(null);
     try {
       localStorage.removeItem('epson_auth_user');
@@ -106,13 +130,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         logout: handleLogout,
       }}
     >
-      <div className="min-h-screen flex flex-col bg-slate-100">
+      <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800 antialiased font-sans">
         <HeaderNav
           currentUser={currentUser}
           onLogout={handleLogout}
           availableUsers={availableUsers}
         />
-        <main className="flex-1 p-4 md:p-6 max-w-[1600px] w-full mx-auto">{children}</main>
+        <main className="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+          {children}
+        </main>
       </div>
     </AppContext.Provider>
   );

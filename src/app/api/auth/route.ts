@@ -1,11 +1,41 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logAuditAction } from '@/lib/audit';
+import {
+  hashPassword,
+  verifyPassword,
+  signSessionToken,
+  verifySessionToken,
+  checkAccountLock,
+  AUTH_COOKIE_NAME,
+  SessionUser,
+} from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
+
+    // Validação de sessão do usuário logado
+    if (action === 'me') {
+      const authHeader = request.headers.get('Authorization');
+      const cookieHeader = request.headers.get('cookie') || '';
+      let token = '';
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      } else {
+        const match = cookieHeader.match(new RegExp(`${AUTH_COOKIE_NAME}=([^;]+)`));
+        if (match) token = match[1];
+      }
+
+      if (!token) {
+        return NextResponse.json({ user: null });
+      }
+
+      const decoded = await verifySessionToken(token);
+      return NextResponse.json({ user: decoded });
+    }
 
     if (action === 'users') {
       const users = await prisma.user.findMany({
@@ -16,6 +46,8 @@ export async function GET(request: Request) {
           role: true,
           permissions: true,
           active: true,
+          failedAttempts: true,
+          lockedUntil: true,
           createdAt: true,
         },
         orderBy: { name: 'asc' },
@@ -38,20 +70,131 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, email, password, name, role, permissions, userId, active, userAuthor = 'Administrador', userRole, currentUserId } = body;
+    const {
+      action,
+      email,
+      password,
+      name,
+      role,
+      permissions,
+      userId,
+      active,
+      userAuthor = 'Administrador',
+      userRole,
+      currentUserId,
+    } = body;
 
-    // Login
+    // Login com Bcrypt, Proteção contra Força Bruta e Emissão de JWT
     if (action === 'login') {
+      if (!email || !password) {
+        return NextResponse.json({ error: 'E-mail e senha são obrigatórios.' }, { status: 400 });
+      }
+
+      const cleanEmail = email.trim().toLowerCase();
       const user = await prisma.user.findUnique({
-        where: { email },
+        where: { email: cleanEmail },
       });
 
-      if (!user || user.password !== password || !user.active) {
+      if (!user) {
         return NextResponse.json(
-          { error: 'Credenciais inválidas ou usuário inativo.' },
+          { error: 'Credenciais inválidas.' },
           { status: 401 }
         );
       }
+
+      if (!user.active) {
+        return NextResponse.json(
+          { error: 'Usuário desativado. Contate o administrador.' },
+          { status: 403 }
+        );
+      }
+
+      // 1. Verificar se a conta está temporariamente bloqueada por força bruta
+      const { isLocked, remainingMinutes } = checkAccountLock(user.lockedUntil);
+      if (isLocked) {
+        return NextResponse.json(
+          {
+            error: `Conta temporariamente bloqueada por excesso de tentativas. Tente novamente em ${remainingMinutes} minuto(s).`,
+            isLocked: true,
+            remainingMinutes,
+          },
+          { status: 423 }
+        );
+      }
+
+      // 2. Verificar senha com Bcrypt
+      const { isValid, needsRehash } = await verifyPassword(password, user.password);
+
+      if (!isValid) {
+        const nextAttempts = (user.failedAttempts || 0) + 1;
+        const maxAttempts = 5;
+        const isNowLocked = nextAttempts >= maxAttempts;
+        const lockUntil = isNowLocked ? new Date(Date.now() + 15 * 60 * 1000) : null;
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedAttempts: nextAttempts,
+            lockedUntil: lockUntil,
+          },
+        });
+
+        await logAuditAction({
+          userId: user.id,
+          userName: user.name,
+          userEmail: user.email,
+          action: 'SECURITY',
+          entity: 'Autenticação',
+          entityId: user.id,
+          details: isNowLocked
+            ? `Conta bloqueada por 15 minutos após ${nextAttempts} tentativas incorretas consecutivas.`
+            : `Tentativa de login com senha incorreta (${nextAttempts}/${maxAttempts}).`,
+        });
+
+        if (isNowLocked) {
+          return NextResponse.json(
+            {
+              error: 'Limite de 5 tentativas excedido. Conta bloqueada por 15 minutos por segurança.',
+              isLocked: true,
+              remainingMinutes: 15,
+            },
+            { status: 423 }
+          );
+        }
+
+        const remaining = maxAttempts - nextAttempts;
+        return NextResponse.json(
+          { error: `Senha incorreta. Você tem mais ${remaining} tentativa(s) antes do bloqueio da conta.` },
+          { status: 401 }
+        );
+      }
+
+      // 3. Sucesso! Resetar tentativas e migrar hash se necessário
+      const updatePayload: any = {
+        failedAttempts: 0,
+        lockedUntil: null,
+      };
+
+      if (needsRehash) {
+        updatePayload.password = await hashPassword(password);
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: updatePayload,
+      });
+
+      const parsedPermissions = JSON.parse(user.permissions || '[]');
+      const sessionUser: SessionUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        permissions: parsedPermissions,
+      };
+
+      // Gerar Token JWT criptografado
+      const token = await signSessionToken(sessionUser);
 
       await logAuditAction({
         userId: user.id,
@@ -63,15 +206,30 @@ export async function POST(request: Request) {
         details: `Login realizado com sucesso por ${user.name} (${user.role})`,
       });
 
-      return NextResponse.json({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          permissions: JSON.parse(user.permissions || '[]'),
-        },
+      const response = NextResponse.json({
+        user: sessionUser,
+        token,
       });
+
+      // Salvar Cookie HttpOnly seguro
+      response.cookies.set({
+        name: AUTH_COOKIE_NAME,
+        value: token,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60, // 7 dias
+      });
+
+      return response;
+    }
+
+    // Logout seguro com limpeza do cookie
+    if (action === 'logout') {
+      const response = NextResponse.json({ success: true, message: 'Logout realizado com sucesso.' });
+      response.cookies.delete(AUTH_COOKIE_NAME);
+      return response;
     }
 
     // Validação de Permissão para Ações de Gerenciamento de Usuários (ADMIN e GERENTE)
@@ -85,7 +243,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create User
+    // Create User (com criptografia Bcrypt da senha)
     if (action === 'create_user') {
       if (!name || !email) {
         return NextResponse.json({ error: 'Nome e e-mail são obrigatórios.' }, { status: 400 });
@@ -97,14 +255,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Já existe um usuário com esse e-mail.' }, { status: 400 });
       }
 
+      const hashedPassword = await hashPassword(password || '123456');
+
       const newUser = await prisma.user.create({
         data: {
           name: name.trim(),
           email: cleanEmail,
-          password: password || '123456',
+          password: hashedPassword,
           role: role || 'TECNICO',
           permissions: JSON.stringify(permissions || []),
           active: active !== undefined ? active : true,
+          failedAttempts: 0,
+          lockedUntil: null,
         },
       });
 
@@ -114,13 +276,13 @@ export async function POST(request: Request) {
         entity: 'Usuario',
         entityId: newUser.id,
         details: `Novo usuário criado: ${newUser.name} (${newUser.email}) - Cargo: ${newUser.role}`,
-        newValues: newUser,
       });
 
-      return NextResponse.json({ user: newUser });
+      const { password: _, ...safeUser } = newUser;
+      return NextResponse.json({ user: safeUser });
     }
 
-    // Update User / Permissions
+    // Update User / Permissions (com criptografia Bcrypt e desbloqueio)
     if (action === 'update_user') {
       if (!userId) {
         return NextResponse.json({ error: 'ID do usuário é obrigatório.' }, { status: 400 });
@@ -148,10 +310,13 @@ export async function POST(request: Request) {
         role: role ?? oldUser.role,
         permissions: permissions ? JSON.stringify(permissions) : oldUser.permissions,
         active: active !== undefined ? active : oldUser.active,
+        // Ao salvar edições, reseta bloqueios por tentativa
+        failedAttempts: 0,
+        lockedUntil: null,
       };
 
       if (password && password.trim().length > 0) {
-        updateData.password = password.trim();
+        updateData.password = await hashPassword(password.trim());
       }
 
       const updated = await prisma.user.update({
@@ -165,11 +330,10 @@ export async function POST(request: Request) {
         entity: 'Usuario',
         entityId: userId,
         details: `Dados do usuário ${updated.name} (${updated.email}) foram atualizados por ${userAuthor}`,
-        oldValues: oldUser,
-        newValues: updated,
       });
 
-      return NextResponse.json({ user: updated });
+      const { password: _, ...safeUpdated } = updated;
+      return NextResponse.json({ user: safeUpdated });
     }
 
     // Delete User
@@ -218,7 +382,6 @@ export async function POST(request: Request) {
         entity: 'Usuario',
         entityId: userId,
         details: `Usuário excluído: ${targetUser.name} (${targetUser.email}) - Cargo: ${targetUser.role}`,
-        oldValues: targetUser,
       });
 
       return NextResponse.json({ success: true, message: `Usuário "${targetUser.name}" excluído com sucesso.` });
@@ -297,7 +460,6 @@ export async function DELETE(request: Request) {
       entity: 'Usuario',
       entityId: userId,
       details: `Usuário excluído: ${targetUser.name} (${targetUser.email}) - Cargo: ${targetUser.role}`,
-      oldValues: targetUser,
     });
 
     return NextResponse.json({ success: true, message: `Usuário "${targetUser.name}" excluído com sucesso.` });

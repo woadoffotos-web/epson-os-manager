@@ -14,9 +14,11 @@ model User {
   email       String   @unique
   password    String   @default("123456")
   role        String   @default("TECNICO") // ADMIN, GERENTE, TECNICO, ATENDENTE
-  permissions String   @default("[]")      // JSON array of specific permissions
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  permissions String    @default("[]")      // JSON array of specific permissions
+  active      Boolean   @default(true)
+  failedAttempts Int    @default(0)
+  lockedUntil    DateTime?
+  createdAt   DateTime  @default(now())
   updatedAt   DateTime @updatedAt
 
   assignedOrders   WorkOrder[]        @relation("TechnicianOrders")

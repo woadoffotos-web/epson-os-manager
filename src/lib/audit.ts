@@ -14,7 +14,7 @@ export async function logAuditAction({
   userId?: string;
   userName?: string;
   userEmail?: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'SECURITY';
   entity: string;
   entityId: string;
   details: string;

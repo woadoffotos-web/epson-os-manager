@@ -323,6 +323,7 @@ export default function UsersAndAuditPage() {
                       <span className="text-[11px] font-bold text-slate-700 uppercase">Liberar Aplicativos:</span>
                       {[
                         { id: 'APP_EPSON_OS', label: 'Epson CSA (O.S.)' },
+                        { id: 'APP_VIPZ', label: 'Vipz Infoged (Clube)' },
                         { id: 'APP_ESTOQUE', label: 'Estoque' },
                         { id: 'APP_CHAMADOS', label: 'Chamados TI' },
                         { id: 'APP_GESTAO', label: 'Gestão Central' },
@@ -409,6 +410,7 @@ export default function UsersAndAuditPage() {
                                   {permList.filter((p: string) => p.startsWith('APP_')).map((p: string) => {
                                     const appLabels: Record<string, string> = {
                                       APP_EPSON_OS: 'Epson CSA',
+                                      APP_VIPZ: 'Vipz Infoged',
                                       APP_ESTOQUE: 'Estoque',
                                       APP_CHAMADOS: 'Chamados TI',
                                       APP_GESTAO: 'Gestão Central',

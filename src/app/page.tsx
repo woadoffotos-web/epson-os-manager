@@ -20,6 +20,9 @@ import {
   Clock,
   ExternalLink,
   Lock,
+  Crown,
+  Gift,
+  Award,
 } from 'lucide-react';
 
 export default function InfogedHubPage() {
@@ -75,6 +78,7 @@ export default function InfogedHubPage() {
   const currentTier = quickMetrics?.classMensal ?? 'GOLD';
 
   const canAccessEpson = hasAccessTo('APP_EPSON_OS');
+  const canAccessVipz = hasAccessTo('APP_VIPZ');
   const canAccessEstoque = hasAccessTo('APP_ESTOQUE');
   const canAccessChamados = hasAccessTo('APP_CHAMADOS');
   const canAccessGestao = isAdminOrManager || hasAccessTo('APP_GESTAO');
@@ -235,7 +239,88 @@ export default function InfogedHubPage() {
           </div>
 
           {/* ============================================================== */}
-          {/* MÓDULO 2: GESTÃO DE ESTOQUE & PEÇAS (PLANEJADO)                 */}
+          {/* MÓDULO: VIPZ INFOGED • CLUBE DE BENEFÍCIOS & FIDELIDADE        */}
+          {/* ============================================================== */}
+          <div
+            className={`relative bg-white rounded-2xl p-6 shadow-sm border transition flex flex-col justify-between overflow-hidden group ${
+              canAccessVipz
+                ? 'border-amber-300/80 hover:shadow-xl hover:border-amber-500'
+                : 'border-slate-200 opacity-60'
+            }`}
+          >
+            <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-bl from-amber-500/15 via-yellow-500/10 to-transparent rounded-bl-full pointer-events-none transition group-hover:scale-125" />
+
+            <div>
+              {/* Topo do Card */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition">
+                  <Crown className="w-6 h-6 text-amber-100" />
+                </div>
+                {canAccessVipz ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                    <span>Vipz Ativo</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold">
+                    <Lock className="w-3 h-3 text-slate-500" />
+                    <span>Não Liberado</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Informações */}
+              <div className="mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
+                  Fidelização & Recompensas
+                </span>
+                <h3 className="text-lg font-extrabold text-slate-900 group-hover:text-amber-700 transition">
+                  Vipz Infoged &bull; Clube de Benefícios
+                </h3>
+              </div>
+
+              <p className="text-xs text-slate-600 line-clamp-3 mb-4 leading-relaxed">
+                Gestão completa de fidelidade: consulta por CPF, conversão de faturamento ERP em pontos, catálogo de prêmios com estoque e emissão de vouchers de resgate.
+              </p>
+
+              {/* Destaques das Funcionalidades */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 mb-5 text-center">
+                <div>
+                  <span className="text-[10px] text-amber-800 font-medium block">Níveis VIP</span>
+                  <span className="text-xs font-black text-amber-900">Bronze a Black</span>
+                </div>
+                <div className="border-x border-amber-200">
+                  <span className="text-[10px] text-amber-800 font-medium block">ERP Gestão</span>
+                  <span className="text-xs font-black text-amber-900">Pronto p/ API</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-amber-800 font-medium block">Segurança</span>
+                  <span className="text-xs font-black text-emerald-800">100% LGPD</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Ações */}
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              {canAccessVipz ? (
+                <Link
+                  href="/vipz"
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2"
+                >
+                  <Award className="w-4 h-4 text-amber-200" />
+                  <span>Acessar Vipz Infoged</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <div className="p-2 text-center text-xs text-slate-500 bg-slate-100 rounded-xl font-medium">
+                  Contate o administrador para liberar este módulo.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ============================================================== */}
+          {/* MÓDULO 3: GESTÃO DE ESTOQUE & PEÇAS (PLANEJADO)                 */}
           {/* ============================================================== */}
           <div className="relative bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between overflow-hidden">
             <div>

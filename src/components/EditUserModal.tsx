@@ -13,6 +13,7 @@ interface EditUserModalProps {
 
 const AVAILABLE_APPS = [
   { id: 'APP_EPSON_OS', label: 'Epson CSA - Controle de O.S. & SLA', description: 'Acesso às ordens de serviço, manômetros e relatórios Epson.' },
+  { id: 'APP_VIPZ', label: 'Vipz Infoged - Clube de Benefícios & Fidelidade', description: 'Consulta de clientes, extrato de pontos, confirmação de vendas e resgate de prêmios.' },
   { id: 'APP_ESTOQUE', label: 'Controle de Estoque & Peças', description: 'Módulo de rastreamento de peças, tintas e insumos.' },
   { id: 'APP_CHAMADOS', label: 'Chamados & Suporte TI', description: 'Central de tickets de suporte técnico e atendimento.' },
   { id: 'APP_GESTAO', label: 'Gestão Corporativa & Auditoria', description: 'Gerenciamento de usuários, permissões e auditoria global.', adminOnly: true },

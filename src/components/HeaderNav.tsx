@@ -27,6 +27,8 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
   const pathname = usePathname();
   const isHub = pathname === '/';
   const isUsersPage = pathname === '/usuarios';
+  const isVipzPage = pathname.startsWith('/vipz');
+  const isInfogedGlobal = isHub || isUsersPage || isVipzPage;
 
   const userRole = (currentUser?.role || 'TECNICO').toUpperCase();
   const isAdminOrManager = userRole === 'ADMIN' || userRole === 'GERENTE';
@@ -43,9 +45,13 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
   const currentDateFormatted = new Date().toLocaleDateString('pt-BR');
 
   // ==============================================================
-  // ESTADO 1: QUANDO ESTIVER NO HUB DE APLICATIVOS INFOGED (/) OU NA PÁGINA GLOBAL DE USUÁRIOS
+  // ESTADO 1: QUANDO ESTIVER NO HUB DE APLICATIVOS (/) OU EM MÓDULOS GLOBAIS INFOGED (/usuarios, /vipz)
   // ==============================================================
-  if (isHub || isUsersPage) {
+  if (isInfogedGlobal) {
+    let moduleBadge = 'Central de Aplicativos';
+    if (isUsersPage) moduleBadge = 'Gestão Corporativa';
+    if (isVipzPage) moduleBadge = 'Vipz Infoged • Fidelidade';
+
     return (
       <header className="w-full bg-[#07241A] text-white shadow-md select-none sticky top-0 z-40 border-b border-emerald-900/50">
         <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -53,12 +59,16 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2 group transition" title="Central de Aplicativos INFOGED">
               <InfogedLogo white={true} height={30} alt="INFOGED Soluções Tecnológicas" />
-              <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500/30 text-emerald-300">
-                {isUsersPage ? 'Gestão Corporativa' : 'Central de Aplicativos'}
+              <span className={`hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                isVipzPage 
+                  ? 'bg-amber-950/80 border-amber-500/40 text-amber-300' 
+                  : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
+              }`}>
+                {moduleBadge}
               </span>
             </Link>
 
-            {isUsersPage ? (
+            {!isHub ? (
               <Link
                 href="/"
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 hover:text-white border border-emerald-500/40 text-[11px] font-bold transition"

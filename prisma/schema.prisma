@@ -170,3 +170,83 @@ model RecordLock {
 
   @@unique([entityType, entityId])
 }
+
+// ==============================================================
+// MÓDULO: VIPZ INFOGED (CLUBE DE BENEFÍCIOS & FIDELIDADE)
+// ==============================================================
+
+model VipzCustomer {
+  id                     String            @id @default(uuid())
+  erpCustomerId          String?           // ID de referência no Gestão Click
+  name                   String
+  cpfCnpj                String            @unique
+  email                  String?
+  phone                  String?
+  pointsBalance          Int               @default(0)
+  totalPointsAccumulated Int               @default(0)
+  totalPointsRedeemed    Int               @default(0)
+  totalSpent             Float             @default(0.0)
+  tier                   String            @default("BRONZE") // BRONZE, PRATA, OURO, VIPZ_BLACK
+  active                 Boolean           @default(true)
+  notes                  String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  transactions           VipzTransaction[]
+  redemptions            VipzRedemption[]
+}
+
+model VipzTransaction {
+  id          String       @id @default(uuid())
+  customerId  String
+  customer    VipzCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type        String       // "PURCHASE" (Venda confirmada), "REDEMPTION" (Resgate), "BONUS", "ADJUSTMENT"
+  points      Int          // Positivo para crédito, negativo para débito
+  saleValue   Float?       // Valor financeiro correspondente em R$
+  erpSaleId   String?      // ID da venda/recebimento no Gestão Click
+  description String
+  createdAt   DateTime     @default(now())
+}
+
+model VipzReward {
+  id           String           @id @default(uuid())
+  erpProductId String?          // ID do produto no Gestão Click
+  title        String
+  description  String?
+  category     String           @default("PRODUTO") // "PRODUTO", "DESCONTO", "BRINDE", "SERVICO"
+  pointsCost   Int              // Custo em pontos
+  stock        Int              @default(10) // Saldo em estoque
+  active       Boolean          @default(true)
+  imageUrl     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  redemptions  VipzRedemption[]
+}
+
+model VipzRedemption {
+  id          String       @id @default(uuid())
+  customerId  String
+  customer    VipzCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  rewardId    String
+  reward      VipzReward   @relation(fields: [rewardId], references: [id])
+  pointsSpent Int
+  voucherCode String       @unique // ex: VIPZ-8924A
+  status      String       @default("EMITIDO") // "EMITIDO", "RESGATADO", "CANCELADO"
+  redeemedAt  DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+model VipzSettings {
+  id                 String   @id @default("default")
+  pointsPerReal      Float    @default(1.0) // R$ 1,00 = 1 ponto
+  pointsValidityDays Int      @default(365) // Validade em dias
+  silverThreshold    Int      @default(1000)
+  goldThreshold      Int      @default(3000)
+  blackThreshold     Int      @default(7000)
+  silverMultiplier   Float    @default(1.2) // +20%
+  goldMultiplier     Float    @default(1.5) // +50%
+  blackMultiplier    Float    @default(2.0) // 2x
+  isErpSyncActive    Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+}

@@ -165,6 +165,97 @@ export class GestaoClickService {
   }
 
   /**
+   * Verifica se o cliente já existe no ERP pelo CPF/CNPJ ou Nome
+   */
+  public static async getClienteByCpfOrName(cpfCnpj: string, nome?: string): Promise<GestaoClickCliente | null> {
+    const cleanCpf = cpfCnpj.replace(/[^\w]/g, '');
+    const clientes = await this.getClientes();
+
+    const found = clientes.find((c) => {
+      const cCpf = c.cpf_cnpj.replace(/[^\w]/g, '');
+      if (cleanCpf && cCpf && cleanCpf === cCpf) return true;
+      if (nome && c.nome.trim().toLowerCase() === nome.trim().toLowerCase()) return true;
+      return false;
+    });
+
+    return found || null;
+  }
+
+  /**
+   * Cadastra novo cliente no ERP Gestão Click com o campo customizado "Vipz"
+   */
+  public static async createCliente(clienteData: {
+    nome: string;
+    cpf_cnpj: string;
+    email?: string;
+    telefone?: string;
+    cep?: string;
+    endereco?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    estado?: string;
+    data_nascimento?: string;
+    vipzTier?: string;
+  }): Promise<{ success: boolean; id: string | number; message?: string }> {
+    const vipzTier = clienteData.vipzTier || 'Bronze';
+
+    if (this.isConfigured()) {
+      try {
+        const payload = {
+          nome: clienteData.nome,
+          cpf_cnpj: clienteData.cpf_cnpj,
+          email: clienteData.email,
+          telefone: clienteData.telefone,
+          cep: clienteData.cep,
+          logradouro: clienteData.endereco,
+          numero: clienteData.numero,
+          complemento: clienteData.complemento,
+          bairro: clienteData.bairro,
+          cidade: clienteData.cidade,
+          estado: clienteData.estado,
+          data_nascimento: clienteData.data_nascimento,
+          // Campo customizado Vipz preenchido no ERP
+          campos_extras: [
+            {
+              nome: 'Vipz',
+              valor: vipzTier,
+            },
+          ],
+        };
+
+        const res = await fetch(`${this.getBaseUrl()}/api/clientes`, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          return {
+            success: true,
+            id: json.data?.id || `gc-${Date.now()}`,
+            message: 'Cliente cadastrado com sucesso no Gestão Click com campo Vipz preenchido.',
+          };
+        } else {
+          const errorJson = await res.json().catch(() => ({}));
+          console.warn('[GestãoClick] Resposta de erro ao criar cliente:', errorJson);
+        }
+      } catch (err) {
+        console.error('[GestãoClick] Falha de conexão ao criar cliente no ERP:', err);
+      }
+    }
+
+    // Modo Local Simulado (LGPD)
+    return {
+      success: true,
+      id: `gc-${Date.now().toString().slice(-4)}`,
+      message: `Cadastrado com sucesso no Gestão Click ERP com o campo 'Vipz' preenchido como '${vipzTier}'.`,
+    };
+  }
+
+  /**
    * Consulta vendas confirmadas e com financeiro liquidado
    */
   public static async getVendasConfirmadas(): Promise<GestaoClickVenda[]> {

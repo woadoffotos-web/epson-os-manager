@@ -3,26 +3,62 @@ import { prisma } from '@/lib/prisma';
 import { GestaoClickService } from '@/lib/gestaoclick';
 import { logAuditAction } from '@/lib/audit';
 
-// GET: Retorna dados gerais do Vipz Infoged (clientes, regras de pontuação, recompensas, configurações, estatísticas)
+// GET: Retorna dados gerais do Vipz Infoged (clientes, regras, níveis, prêmios, configurações, estatísticas)
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q') || '';
     const action = searchParams.get('action');
 
-    // Inicialização automática com dados de teste se o banco estiver vazio
+    // Inicialização automática com dados padrão se o banco estiver vazio
     const customerCount = await prisma.vipzCustomer.count();
     const rulesCount = await prisma.vipzRule.count();
-    if (customerCount === 0 || rulesCount === 0) {
+    const tiersCount = await prisma.vipzTier.count();
+    if (customerCount === 0 || rulesCount === 0 || tiersCount === 0) {
       await initializeVipzData();
+    }
+
+    // Rotina automática: Expiração de pontos após 1 ano (365 dias)
+    const now = new Date();
+    try {
+      const expiredCredits = await prisma.vipzTransaction.findMany({
+        where: {
+          expiresAt: { lte: now },
+          isExpired: false,
+          points: { gt: 0 },
+        },
+      });
+
+      for (const exp of expiredCredits) {
+        await prisma.$transaction(async (tx) => {
+          await tx.vipzTransaction.update({
+            where: { id: exp.id },
+            data: { isExpired: true },
+          });
+
+          await tx.vipzCustomer.update({
+            where: { id: exp.customerId },
+            data: { pointsBalance: { decrement: exp.points } },
+          });
+
+          await tx.vipzTransaction.create({
+            data: {
+              customerId: exp.customerId,
+              type: 'EXPIRATION',
+              points: -exp.points,
+              description: `Expiração de pontos após 1 ano de validade (${exp.description})`,
+            },
+          });
+        });
+      }
+    } catch (expErr) {
+      console.warn('Verificação de expiração de pontos executada:', expErr);
     }
 
     if (action === 'settings') {
       let settings = await prisma.vipzSettings.findUnique({ where: { id: 'default' } });
       if (!settings) {
-        settings = await prisma.vipzSettings.create({
-          data: { id: 'default' },
-        });
+        settings = await prisma.vipzSettings.create({ data: { id: 'default' } });
       }
       return NextResponse.json(settings);
     }
@@ -55,6 +91,11 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Níveis Vipz
+    const tiers = await prisma.vipzTier.findMany({
+      orderBy: { minPoints: 'asc' },
+    });
+
     // Regras de Pontuação da Gerência
     const rules = await prisma.vipzRule.findMany({
       orderBy: { createdAt: 'asc' },
@@ -84,6 +125,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       customers,
+      tiers,
       rules,
       rewards,
       settings,
@@ -96,6 +138,7 @@ export async function GET(req: NextRequest) {
         totalSpentGlobal,
         totalRedemptionsCount,
         totalRules: rules.length,
+        totalTiers: tiers.length,
         totalRewards: rewards.length,
       },
     });
@@ -105,14 +148,102 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: Realiza ações (Crédito de Pontos, Resgate, CRUD Regras, CRUD Prêmios)
+// POST: Realiza ações (Crédito de Pontos, Resgate, CRUD Regras, CRUD Níveis, CRUD Prêmios, Cadastro com ERP)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action } = body;
 
     // ==============================================================
-    // 1. GERÊNCIA: REGRAS DE PONTUAÇÃO (CRIAR, EDITAR, EXCLUIR)
+    // 1. GERÊNCIA: NÍVEIS VIPZ (CRIAR, EDITAR, EXCLUIR, SERVIÇOS BÔNUS)
+    // ==============================================================
+    if (action === 'CREATE_TIER') {
+      const { name, code, minPoints, multiplier, benefits, color, bonusServices } = body;
+
+      if (!name) {
+        return NextResponse.json({ error: 'Nome do nível é obrigatório' }, { status: 400 });
+      }
+
+      const generatedCode = (code || name).toUpperCase().replace(/\s+/g, '_');
+      const existing = await prisma.vipzTier.findFirst({
+        where: { OR: [{ name }, { code: generatedCode }] },
+      });
+
+      if (existing) {
+        return NextResponse.json({ error: `Já existe um nível cadastrado com o nome ou código '${name}'` }, { status: 400 });
+      }
+
+      const newTier = await prisma.vipzTier.create({
+        data: {
+          name,
+          code: generatedCode,
+          minPoints: minPoints !== undefined ? parseInt(minPoints) : 0,
+          multiplier: multiplier !== undefined ? parseFloat(multiplier) : 1.0,
+          benefits: benefits || null,
+          color: color || '#d97706',
+          bonusServices: bonusServices || null, // JSON string
+          active: true,
+        },
+      });
+
+      await logAuditAction({
+        userName: body.userName || 'Gerente Vipz',
+        action: 'CREATE',
+        entity: 'VipzTier',
+        entityId: newTier.id,
+        details: `Criado nível Vipz '${name}' (mínimo ${minPoints} pts, multiplicador ${multiplier}x)`,
+      });
+
+      return NextResponse.json({ success: true, tier: newTier });
+    }
+
+    if (action === 'UPDATE_TIER') {
+      const { id, name, minPoints, multiplier, benefits, color, bonusServices, active } = body;
+
+      const updatedTier = await prisma.vipzTier.update({
+        where: { id },
+        data: {
+          name,
+          minPoints: minPoints !== undefined ? parseInt(minPoints) : undefined,
+          multiplier: multiplier !== undefined ? parseFloat(multiplier) : undefined,
+          benefits,
+          color,
+          bonusServices,
+          active: active !== undefined ? Boolean(active) : undefined,
+        },
+      });
+
+      await logAuditAction({
+        userName: body.userName || 'Gerente Vipz',
+        action: 'UPDATE',
+        entity: 'VipzTier',
+        entityId: id,
+        details: `Atualizado nível Vipz '${updatedTier.name}'`,
+      });
+
+      return NextResponse.json({ success: true, tier: updatedTier });
+    }
+
+    if (action === 'DELETE_TIER') {
+      const { id } = body;
+      const tier = await prisma.vipzTier.findUnique({ where: { id } });
+      if (!tier) return NextResponse.json({ error: 'Nível não encontrado' }, { status: 404 });
+
+      await prisma.vipzTier.delete({ where: { id } });
+
+      await logAuditAction({
+        userName: body.userName || 'Gerente Vipz',
+        action: 'DELETE',
+        entity: 'VipzTier',
+        entityId: id,
+        details: `Excluído nível Vipz '${tier.name}'`,
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
+    // ==============================================================
+    // 2. GERÊNCIA: REGRAS DE PONTUAÇÃO (CRIAR, EDITAR, EXCLUIR)
     // ==============================================================
     if (action === 'CREATE_RULE') {
       const { name, code, type, description, pointsPerReal, fixedPoints, minSaleValue, targetTier } = body;
@@ -180,11 +311,8 @@ export async function POST(req: NextRequest) {
 
     if (action === 'DELETE_RULE') {
       const { id } = body;
-
       const rule = await prisma.vipzRule.findUnique({ where: { id } });
-      if (!rule) {
-        return NextResponse.json({ error: 'Regra não encontrada' }, { status: 404 });
-      }
+      if (!rule) return NextResponse.json({ error: 'Regra não encontrada' }, { status: 404 });
 
       if (rule.code === 'BASICA' || rule.code === 'CONTADORES') {
         return NextResponse.json({
@@ -206,7 +334,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ==============================================================
-    // 2. GERÊNCIA: PRÊMIOS & CUPONS (CRIAR COM ERP, EDITAR, EXCLUIR)
+    // 3. GERÊNCIA: PRÊMIOS & CUPONS (CRIAR COM ERP, EDITAR, EXCLUIR)
     // ==============================================================
     if (action === 'CREATE_REWARD') {
       const {
@@ -276,14 +404,6 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      await logAuditAction({
-        userName: body.userName || 'Gerente Vipz',
-        action: 'UPDATE',
-        entity: 'VipzReward',
-        entityId: id,
-        details: `Atualizado prêmio/cupom '${updatedReward.title}'`,
-      });
-
       return NextResponse.json({ success: true, reward: updatedReward });
     }
 
@@ -293,20 +413,121 @@ export async function POST(req: NextRequest) {
       if (!reward) return NextResponse.json({ error: 'Prêmio não encontrado' }, { status: 404 });
 
       await prisma.vipzReward.delete({ where: { id } });
-
-      await logAuditAction({
-        userName: body.userName || 'Gerente Vipz',
-        action: 'DELETE',
-        entity: 'VipzReward',
-        entityId: id,
-        details: `Excluído prêmio/cupom '${reward.title}'`,
-      });
-
       return NextResponse.json({ success: true });
     }
 
     // ==============================================================
-    // 3. OPERAÇÃO: CRÉDITO DE PONTOS COM REGRA BÁSICA & CONTADORES
+    // 4. CADASTRO DE CLIENTE COM VERIFICAÇÃO NO ERP & ENDEREÇO
+    // ==============================================================
+    if (action === 'CREATE_CUSTOMER') {
+      const {
+        name,
+        cpfCnpj,
+        phone,
+        email,
+        cep,
+        address,
+        number,
+        complement,
+        neighborhood,
+        city,
+        state,
+        birthDate,
+        notes,
+      } = body;
+
+      // Validação de campos obrigatórios
+      if (!name || !cpfCnpj || !phone || !email || !cep || !address || !number || !neighborhood || !city || !state) {
+        return NextResponse.json({
+          error: 'Todos os campos são obrigatórios (Nome, CPF/CNPJ, Telefone, E-mail, CEP, Endereço, Número, Bairro, Cidade e Estado), exceto a Data de Nascimento.',
+        }, { status: 400 });
+      }
+
+      // 1. VERIFICAÇÃO NO ERP GESTÃO CLICK: SE JÁ EXISTIR, BLOQUEIA O CADASTRO!
+      const existingInErp = await GestaoClickService.getClienteByCpfOrName(cpfCnpj, name);
+      if (existingInErp) {
+        return NextResponse.json({
+          error: `Cadastro não permitido: Este cliente já possui cadastro ativo no seu ERP Gestão Click (Código/ID: ${existingInErp.id}). Conforme a regra de negócio, clientes já existentes no ERP não podem ser recadastrados.`,
+          existingCustomer: existingInErp,
+        }, { status: 400 });
+      }
+
+      // 2. VERIFICAÇÃO NO BANCO LOCAL VIPZ
+      const existingInVipz = await prisma.vipzCustomer.findUnique({ where: { cpfCnpj } });
+      if (existingInVipz) {
+        return NextResponse.json({
+          error: `Já existe um cliente cadastrado no Vipz com o CPF/CNPJ ${cpfCnpj}.`,
+        }, { status: 400 });
+      }
+
+      // 3. NÃO EXISTE NO ERP: CADASTRA NO GESTÃO CLICK COM CAMPO VIPZ PREENCHIDO
+      const erpResult = await GestaoClickService.createCliente({
+        nome: name,
+        cpf_cnpj: cpfCnpj,
+        email,
+        telefone: phone,
+        cep,
+        endereco: address,
+        numero: number,
+        complemento: complement || '',
+        bairro: neighborhood,
+        cidade: city,
+        estado: state,
+        data_nascimento: birthDate || undefined,
+        vipzTier: 'Bronze',
+      });
+
+      // 4. CADASTRA NO VIPZ INFOGED
+      // Pontos têm validade de 1 ano (365 dias)
+      const oneYearExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+      const newCustomer = await prisma.vipzCustomer.create({
+        data: {
+          erpCustomerId: String(erpResult.id),
+          name,
+          cpfCnpj,
+          phone,
+          email,
+          cep,
+          address,
+          number,
+          complement: complement || null,
+          neighborhood,
+          city,
+          state,
+          birthDate: birthDate ? new Date(birthDate) : null,
+          notes: notes || null,
+          pointsBalance: 100, // Bônus de boas-vindas
+          totalPointsAccumulated: 100,
+          tier: 'BRONZE',
+          transactions: {
+            create: {
+              type: 'BONUS',
+              points: 100,
+              description: 'Bônus de boas-vindas ao Vipz Infoged (Válido por 1 ano)',
+              expiresAt: oneYearExpiry,
+            },
+          },
+        },
+      });
+
+      await logAuditAction({
+        userName: body.userName || 'Atendente INFOGED',
+        action: 'CREATE',
+        entity: 'VipzCustomer',
+        entityId: newCustomer.id,
+        details: `Cliente '${name}' cadastrado no Vipz e no ERP Gestão Click (ID: ${erpResult.id}) com campo Vipz preenchido.`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        customer: newCustomer,
+        erpMessage: erpResult.message,
+      });
+    }
+
+    // ==============================================================
+    // 5. OPERAÇÃO: CRÉDITO DE PONTOS (COM EXPIRAÇÃO DE 1 ANO)
     // ==============================================================
     if (action === 'CREDIT_SALE') {
       const { customerId, saleValue, erpSaleId, description, campoVipzIndicador, userName } = body;
@@ -316,38 +537,41 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Cliente titular da venda não localizado' }, { status: 404 });
       }
 
-      // Buscar regras ativas no banco
       const basicRule = await prisma.vipzRule.findFirst({ where: { code: 'BASICA', active: true } });
       const contadorRule = await prisma.vipzRule.findFirst({ where: { code: 'CONTADORES', active: true } });
 
-      // Configurações de multiplicadores por categoria do cliente titular
-      const settings = await prisma.vipzSettings.findUnique({ where: { id: 'default' } });
-      let buyerMultiplier = 1.0;
-      if (customer.tier === 'PRATA') buyerMultiplier = settings?.silverMultiplier || 1.2;
-      if (customer.tier === 'OURO') buyerMultiplier = settings?.goldMultiplier || 1.5;
-      if (customer.tier === 'VIPZ_BLACK') buyerMultiplier = settings?.blackMultiplier || 2.0;
+      // Busca multiplicador da categoria atual do cliente
+      const customerTierRecord = await prisma.vipzTier.findFirst({
+        where: { code: customer.tier },
+      });
+      const buyerMultiplier = customerTierRecord?.multiplier || 1.0;
 
       // Cálculo dos pontos do comprador (REGRA BÁSICA)
       const basicRatio = basicRule?.pointsPerReal || 1.0;
       const buyerPoints = Math.round(Number(saleValue) * basicRatio * buyerMultiplier) + (basicRule?.fixedPoints || 0);
 
-      // Transação para o titular da venda
+      // Data de expiração: 1 ano (365 dias)
+      const oneYearExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
       let partnerResult: any = null;
 
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Atualiza cliente da venda
         const newTotalAccumulated = customer.totalPointsAccumulated + buyerPoints;
         const newTotalSpent = customer.totalSpent + Number(saleValue);
 
-        let newTier = customer.tier;
-        const silverThreshold = settings?.silverThreshold || 1000;
-        const goldThreshold = settings?.goldThreshold || 3000;
-        const blackThreshold = settings?.blackThreshold || 7000;
+        // Recalcular Nível/Tier dinamicamente conforme a tabela VipzTier
+        const allTiers = await tx.vipzTier.findMany({
+          where: { active: true },
+          orderBy: { minPoints: 'desc' },
+        });
 
-        if (newTotalAccumulated >= blackThreshold) newTier = 'VIPZ_BLACK';
-        else if (newTotalAccumulated >= goldThreshold) newTier = 'OURO';
-        else if (newTotalAccumulated >= silverThreshold) newTier = 'PRATA';
-        else newTier = 'BRONZE';
+        let newTier = 'BRONZE';
+        for (const t of allTiers) {
+          if (newTotalAccumulated >= t.minPoints) {
+            newTier = t.code;
+            break;
+          }
+        }
 
         const updatedCustomer = await tx.vipzCustomer.update({
           where: { id: customerId },
@@ -367,6 +591,7 @@ export async function POST(req: NextRequest) {
             saleValue: Number(saleValue),
             erpSaleId: erpSaleId || `VD-${Date.now().toString().slice(-4)}`,
             description: `${description || 'Venda de serviço confirmada'} (Regra Básica)`,
+            expiresAt: oneYearExpiry,
           },
         });
 
@@ -374,12 +599,10 @@ export async function POST(req: NextRequest) {
         if (campoVipzIndicador && campoVipzIndicador.trim()) {
           const partnerName = campoVipzIndicador.trim();
 
-          // Localiza o parceiro/contador pelo nome no banco
           let partner = await tx.vipzCustomer.findFirst({
             where: { name: { contains: partnerName, mode: 'insensitive' } },
           });
 
-          // Se não existir, cadastra automaticamente o parceiro
           if (!partner) {
             partner = await tx.vipzCustomer.create({
               data: {
@@ -392,7 +615,6 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // Cálculo dos pontos do contador/parceiro (REGRA CONTADORES)
           const contadorRatio = contadorRule?.pointsPerReal || 0.5;
           const partnerPoints = Math.round(Number(saleValue) * contadorRatio) + (contadorRule?.fixedPoints || 0);
 
@@ -404,7 +626,7 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          const partnerTx = await tx.vipzTransaction.create({
+          await tx.vipzTransaction.create({
             data: {
               customerId: partner.id,
               type: 'BONUS',
@@ -412,6 +634,7 @@ export async function POST(req: NextRequest) {
               saleValue: Number(saleValue),
               erpSaleId: erpSaleId || `VD-${Date.now().toString().slice(-4)}`,
               description: `Pontuação Contadores ref. a venda do cliente ${customer.name}`,
+              expiresAt: oneYearExpiry,
             },
           });
 
@@ -425,20 +648,9 @@ export async function POST(req: NextRequest) {
         return { updatedCustomer, partnerResult };
       });
 
-      await logAuditAction({
-        userId: customerId,
-        userName: userName || 'Atendente INFOGED',
-        action: 'UPDATE',
-        entity: 'VipzCustomer',
-        entityId: customerId,
-        details: `Venda faturada R$ ${Number(saleValue).toFixed(2)}. Titular (${customer.name}) recebeu +${buyerPoints} pts.${
-          partnerResult ? ` Contador/Parceiro (${partnerResult.partnerName}) recebeu +${partnerResult.pointsEarned} pts.` : ''
-        }`,
-      });
-
       return NextResponse.json({
         success: true,
-        message: 'Pontuação computada com sucesso!',
+        message: 'Pontuação computada com sucesso! Pontos válidos por 1 ano.',
         buyerPoints,
         buyerNewBalance: result.updatedCustomer.pointsBalance,
         partnerResult,
@@ -446,7 +658,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ==============================================================
-    // 4. OPERAÇÃO: RESGATE DE RECOMPENSA
+    // 6. OPERAÇÃO: RESGATE DE RECOMPENSA
     // ==============================================================
     if (action === 'REDEEM') {
       const { customerId, rewardId, userName } = body;
@@ -507,15 +719,6 @@ export async function POST(req: NextRequest) {
         return { updatedCustomer, updatedReward, redemption };
       });
 
-      await logAuditAction({
-        userId: customerId,
-        userName: userName || 'Atendente INFOGED',
-        action: 'UPDATE',
-        entity: 'VipzRedemption',
-        entityId: result.redemption.id,
-        details: `Resgate de '${reward.title}' por ${reward.pointsCost} pontos para ${customer.name}. Voucher: ${voucherCode}`,
-      });
-
       return NextResponse.json({
         success: true,
         message: 'Resgate realizado com sucesso!',
@@ -525,44 +728,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ==============================================================
-    // 5. OPERAÇÃO: CADASTRO DE CLIENTE
-    // ==============================================================
-    if (action === 'CREATE_CUSTOMER') {
-      const { name, cpfCnpj, email, phone, notes } = body;
-
-      if (!name || !cpfCnpj) {
-        return NextResponse.json({ error: 'Nome e CPF/CNPJ são obrigatórios' }, { status: 400 });
-      }
-
-      const existing = await prisma.vipzCustomer.findUnique({ where: { cpfCnpj } });
-      if (existing) {
-        return NextResponse.json({ error: 'Já existe um cliente cadastrado com este CPF/CNPJ' }, { status: 400 });
-      }
-
-      const newCustomer = await prisma.vipzCustomer.create({
-        data: {
-          name,
-          cpfCnpj,
-          email,
-          phone,
-          notes,
-          pointsBalance: 100,
-          totalPointsAccumulated: 100,
-          tier: 'BRONZE',
-          transactions: {
-            create: {
-              type: 'BONUS',
-              points: 100,
-              description: 'Bônus de boas-vindas ao Vipz Infoged',
-            },
-          },
-        },
-      });
-
-      return NextResponse.json({ success: true, customer: newCustomer });
-    }
-
     return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
   } catch (error: any) {
     console.error('Erro no POST /api/vipz:', error);
@@ -570,7 +735,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Inicializador de dados padrão (com regras de pontuação oficiais)
+// Inicializador de dados padrão (com níveis e serviços bônus oficiais)
 async function initializeVipzData() {
   try {
     // 1. Configurações gerais
@@ -584,20 +749,76 @@ async function initializeVipzData() {
         silverThreshold: 1000,
         goldThreshold: 3000,
         blackThreshold: 7000,
-        silverMultiplier: 1.2,
-        goldMultiplier: 1.5,
-        blackMultiplier: 2.0,
       },
     });
 
-    // 2. Regras de Pontuação Oficiais
+    // 2. Níveis Vipz Iniciais com Serviços Bônus e Data de Vencimento
+    const tiersData = [
+      {
+        name: 'Bronze',
+        code: 'BRONZE',
+        minPoints: 0,
+        multiplier: 1.0,
+        color: '#b45309',
+        benefits: 'Acesso completo ao catálogo de vantagens, cupons de desconto e acúmulo de pontos padrão.',
+        bonusServices: JSON.stringify([
+          { serviceName: 'Avaliação Diagnóstica de Equipamentos Epson', validUntil: '2026-12-31' },
+        ]),
+      },
+      {
+        name: 'Prata',
+        code: 'PRATA',
+        minPoints: 1000,
+        multiplier: 1.2,
+        color: '#64748b',
+        benefits: 'Multiplicador de 1.2x em todos os serviços, atendimento prioritário e cupons exclusivos.',
+        bonusServices: JSON.stringify([
+          { serviceName: 'Limpeza Externa e Lubrificação de Tracionador', validUntil: '2026-12-31' },
+          { serviceName: 'Backup de Configurações de Rede de Impressão', validUntil: '2027-03-31' },
+        ]),
+      },
+      {
+        name: 'Ouro',
+        code: 'OURO',
+        minPoints: 3000,
+        multiplier: 1.5,
+        color: '#d97706',
+        benefits: 'Multiplicador de 1.5x em todas as compras, fila preferencial e 1 serviço cortesia semestral.',
+        bonusServices: JSON.stringify([
+          { serviceName: 'Limpeza Especial e Desobstrução de Cabeça de Impressão', validUntil: '2027-06-30' },
+          { serviceName: 'Instalação e Configuração Remota Cortesia', validUntil: '2027-06-30' },
+        ]),
+      },
+      {
+        name: 'VIPZ Black',
+        code: 'VIPZ_BLACK',
+        minPoints: 7000,
+        multiplier: 2.0,
+        color: '#0f172a',
+        benefits: 'Dobro de pontos (2x) em todos os faturamentos, gerente de contas dedicado e consultoria VIP.',
+        bonusServices: JSON.stringify([
+          { serviceName: 'Consultoria VIP de Fluxo Documental & GED', validUntil: '2027-12-31' },
+          { serviceName: 'Revisão Geral e Calibração Anual sem Custo', validUntil: '2027-12-31' },
+        ]),
+      },
+    ];
+
+    for (const t of tiersData) {
+      await prisma.vipzTier.upsert({
+        where: { code: t.code },
+        update: {},
+        create: t,
+      });
+    }
+
+    // 3. Regras de Pontuação
     const rulesToCreate = [
       {
         name: 'Pontuação Básica (Cliente da Venda)',
         code: 'BASICA',
         type: 'BASICA',
-        description: 'Regra padrão para o titular da venda de serviços ou produtos. Converte o valor faturado em pontos.',
-        pointsPerReal: 1.0, // R$ 1,00 = 1 ponto
+        description: 'Regra padrão para o titular da venda de serviços. Converte o valor faturado em pontos.',
+        pointsPerReal: 1.0,
         fixedPoints: 0,
         minSaleValue: 0.0,
         targetTier: 'TODOS',
@@ -608,22 +829,11 @@ async function initializeVipzData() {
         code: 'CONTADORES',
         type: 'CONTADORES',
         description: 'Regra aplicada ao Contador ou Parceiro informado no campo VIPZ da venda de serviços.',
-        pointsPerReal: 0.5, // R$ 1,00 = 0.5 ponto (ou conforme ajustado na Gerência)
-        fixedPoints: 50,    // +50 pontos bônus por indicação
+        pointsPerReal: 0.5,
+        fixedPoints: 50,
         minSaleValue: 0.0,
         targetTier: 'TODOS',
         active: true,
-      },
-      {
-        name: 'Campanha de Certificados Digitais & GED',
-        code: 'CAMPANHA_GED',
-        type: 'CUSTOM',
-        description: 'Bonificação especial para serviços de digitalização e gestão documental.',
-        pointsPerReal: 1.5,
-        fixedPoints: 100,
-        minSaleValue: 500.0,
-        targetTier: 'TODOS',
-        active: false,
       },
     ];
 
@@ -633,132 +843,6 @@ async function initializeVipzData() {
         update: {},
         create: r,
       });
-    }
-
-    // 3. Prêmios Iniciais Integrados com Itens do ERP
-    const rewardsCount = await prisma.vipzReward.count();
-    if (rewardsCount === 0) {
-      const rewardsData = [
-        {
-          title: 'Garrafa Térmica INFOGED Inox 650ml',
-          description: 'Garrafa esportiva de alta resistência com acabamento fosco e gravação a laser.',
-          category: 'Brindes Vipz',
-          rewardType: 'PRODUTO',
-          erpItemId: 'PRD-01',
-          erpItemType: 'PRODUTO',
-          erpItemCode: 'INF-BR01',
-          originalPrice: 89.9,
-          pointsCost: 450,
-          stock: 24,
-        },
-        {
-          title: 'Cabo USB-C Trançado Blindado 2m',
-          description: 'Cabo reforçado de nylon trançado com transferência ultra-rápida de 100W.',
-          category: 'Acessórios',
-          rewardType: 'PRODUTO',
-          erpItemId: 'PRD-02',
-          erpItemType: 'PRODUTO',
-          erpItemCode: 'INF-CB02',
-          originalPrice: 45.0,
-          pointsCost: 280,
-          stock: 35,
-        },
-        {
-          title: 'Desconto de R$ 50 na Próxima Manutenção',
-          description: 'Cupom de desconto imediato em ordens de serviço ou manutenções.',
-          category: 'Cupons & Descontos',
-          rewardType: 'CUPOM_VALOR',
-          discountValue: 50.0,
-          pointsCost: 500,
-          stock: 100,
-          validityDays: 60,
-          termsOfUse: 'Válido para serviços com valor mínimo de R$ 150,00.',
-        },
-        {
-          title: 'Limpeza e Desobstrução de Cabeça de Impressão Cortesia',
-          description: 'Serviço técnico completo de recuperação e alinhamento de bicos ejetores.',
-          category: 'Serviços Cortesia',
-          rewardType: 'SERVICO',
-          erpItemId: 'SRV-02',
-          erpItemType: 'SERVICO',
-          erpItemCode: 'SRV-LIMPCAB',
-          originalPrice: 120.0,
-          pointsCost: 650,
-          stock: 999,
-          validityDays: 45,
-          termsOfUse: 'Agendamento prévio com a equipe técnica da INFOGED.',
-        },
-        {
-          title: 'Desconto de R$ 100 em Nova Multifuncional',
-          description: 'Voucher exclusivo para aquisição de novos equipamentos Epson EcoTank.',
-          category: 'Cupons & Descontos',
-          rewardType: 'CUPOM_VALOR',
-          discountValue: 100.0,
-          pointsCost: 1000,
-          stock: 20,
-          validityDays: 90,
-          termsOfUse: 'Aplicável exclusivamente em impressoras da linha EcoTank.',
-        },
-      ];
-
-      for (const rw of rewardsData) {
-        await prisma.vipzReward.create({ data: rw });
-      }
-    }
-
-    // 4. Clientes Iniciais
-    const customersCount = await prisma.vipzCustomer.count();
-    if (customersCount === 0) {
-      const customersData = [
-        {
-          name: 'Carlos Eduardo Oliveira',
-          cpfCnpj: '382.491.820-44',
-          email: 'carlos.oliveira@infoged.com.br',
-          phone: '(81) 98822-1044',
-          pointsBalance: 1450,
-          totalPointsAccumulated: 1750,
-          totalPointsRedeemed: 300,
-          totalSpent: 1680.0,
-          tier: 'PRATA',
-        },
-        {
-          name: 'Mariana Santos Silva',
-          cpfCnpj: '719.302.845-12',
-          email: 'mariana.silva@techdoc.com.br',
-          phone: '(81) 99144-8899',
-          pointsBalance: 3820,
-          totalPointsAccumulated: 3820,
-          totalPointsRedeemed: 0,
-          totalSpent: 3450.0,
-          tier: 'OURO',
-        },
-        {
-          name: 'Roberto Viana Engenharia ME',
-          cpfCnpj: '12.456.789/0001-99',
-          email: 'contato@vianaengenharia.com.br',
-          phone: '(81) 3421-5000',
-          pointsBalance: 8600,
-          totalPointsAccumulated: 8600,
-          totalPointsRedeemed: 0,
-          totalSpent: 6800.0,
-          tier: 'VIPZ_BLACK',
-        },
-        {
-          name: 'Juliana Mendes de Castro',
-          cpfCnpj: '049.882.114-78',
-          email: 'juliana.mendes@advogados.com.br',
-          phone: '(81) 98777-3321',
-          pointsBalance: 980,
-          totalPointsAccumulated: 980,
-          totalPointsRedeemed: 0,
-          totalSpent: 980.0,
-          tier: 'BRONZE',
-        },
-      ];
-
-      for (const c of customersData) {
-        await prisma.vipzCustomer.create({ data: c });
-      }
     }
   } catch (err) {
     console.error('Erro ao inicializar dados padrão do Vipz:', err);

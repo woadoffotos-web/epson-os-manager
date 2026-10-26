@@ -211,6 +211,14 @@ model VipzTransaction {
 model VipzReward {
   id           String           @id @default(uuid())
   erpProductId String?          // ID do produto no Gestão Click
+  erpItemId    String?          // ID do item (produto ou serviço) no Gestão Click
+  erpItemType  String?          @default("PRODUTO") // "PRODUTO" ou "SERVICO"
+  erpItemCode  String?          // Código/SKU no Gestão Click
+  originalPrice Float?          // Preço de venda original no ERP
+  rewardType   String           @default("PRODUTO") // "PRODUTO", "CUPOM_VALOR", "CUPOM_PERCENTUAL", "SERVICO"
+  discountValue Float?          // Valor monetário de desconto (R$) ou percentual (%)
+  validityDays Int              @default(30) // Dias de validade do cupom emitido
+  termsOfUse   String?          // Regras e condições de uso
   title        String
   description  String?
   category     String           @default("PRODUTO") // "PRODUTO", "DESCONTO", "BRINDE", "SERVICO"
@@ -222,6 +230,21 @@ model VipzReward {
   updatedAt    DateTime         @updatedAt
 
   redemptions  VipzRedemption[]
+}
+
+model VipzRule {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   @unique // ex: "BASICA", "CONTADORES", "CAMPANHA_1"
+  type          String   @default("BASICA") // "BASICA", "CONTADORES", "CUSTOM"
+  description   String?
+  pointsPerReal Float    @default(1.0) // ex: R$ 1,00 = 1 ponto (ou 0.5, 2, etc.)
+  fixedPoints   Int      @default(0)   // Pontos fixos bônus
+  minSaleValue  Float    @default(0.0) // Valor mínimo de venda para ativar
+  targetTier    String   @default("TODOS") // TODOS, BRONZE, PRATA, OURO, VIPZ_BLACK
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model VipzRedemption {

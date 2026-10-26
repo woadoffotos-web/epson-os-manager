@@ -32,6 +32,8 @@ export interface GestaoClickVenda {
   valor_total: number;
   status: 'confirmada' | 'pendente' | 'cancelada';
   liquidado_financeiro: boolean;
+  tipo?: 'servico' | 'produto';
+  campo_vipz_indicador?: string; // Nome do cliente associado no campo VIPZ (ex: Contador / Parceiro)
   itens: Array<{
     produto_id: string | number;
     nome: string;
@@ -46,6 +48,16 @@ export interface GestaoClickProduto {
   codigo?: string;
   preco_venda: number;
   estoque: number;
+  categoria?: string;
+  tipo?: 'PRODUTO' | 'SERVICO';
+  ativo: boolean;
+}
+
+export interface GestaoClickServico {
+  id: string | number;
+  nome: string;
+  codigo?: string;
+  valor: number;
   categoria?: string;
   ativo: boolean;
 }
@@ -172,47 +184,121 @@ export class GestaoClickService {
       }
     }
 
-    // Mock local de vendas faturadas
+    // Mock local de vendas faturadas (com simulação do campo VIPZ de associação de cliente)
     return [
       {
-        id: 'VD-2026-901',
+        id: 'OS-SRV-2026-001',
         cliente_id: 'gc-101',
         cliente_nome: 'Carlos Eduardo Oliveira',
         data_emissao: '2026-10-24T14:30:00Z',
-        valor_total: 450.0,
+        valor_total: 480.0,
         status: 'confirmada',
         liquidado_financeiro: true,
+        tipo: 'servico',
+        campo_vipz_indicador: 'Roberto Viana Engenharia ME', // Associado ao Contador/Parceiro!
         itens: [
-          { produto_id: 'p-1', nome: 'Refil Garrafa de Tinta Epson T544 Preto', quantidade: 4, valor_unitario: 65.0 },
-          { produto_id: 'p-2', nome: 'Manutenção Preventiva de Scanner', quantidade: 1, valor_unitario: 190.0 },
+          { produto_id: 'srv-1', nome: 'Contrato de Suporte Técnico & Backup Mensal', quantidade: 1, valor_unitario: 480.0 },
         ],
       },
       {
-        id: 'VD-2026-902',
+        id: 'OS-SRV-2026-002',
         cliente_id: 'gc-102',
         cliente_nome: 'Mariana Santos Silva',
         data_emissao: '2026-10-25T10:15:00Z',
-        valor_total: 1280.0,
+        valor_total: 350.0,
         status: 'confirmada',
         liquidado_financeiro: true,
+        tipo: 'servico',
+        campo_vipz_indicador: '', // Campo VIPZ EM BRANCO (apenas regra básica)
         itens: [
-          { produto_id: 'p-3', nome: 'Impressora Epson EcoTank L3250', quantidade: 1, valor_unitario: 1190.0 },
-          { produto_id: 'p-4', nome: 'Pacote de Papel Fotográfico Glossy A4', quantidade: 3, valor_unitario: 30.0 },
+          { produto_id: 'srv-2', nome: 'Manutenção Preventiva de Impressora EcoTank', quantidade: 1, valor_unitario: 350.0 },
         ],
       },
       {
-        id: 'VD-2026-903',
-        cliente_id: 'gc-103',
-        cliente_nome: 'Roberto Viana Engenharia ME',
+        id: 'OS-SRV-2026-003',
+        cliente_id: 'gc-104',
+        cliente_nome: 'Juliana Mendes de Castro',
         data_emissao: '2026-10-25T16:00:00Z',
-        valor_total: 3400.0,
+        valor_total: 790.0,
         status: 'confirmada',
         liquidado_financeiro: true,
+        tipo: 'servico',
+        campo_vipz_indicador: 'Roberto Viana Engenharia ME', // Outro cliente indicando o mesmo contador!
         itens: [
-          { produto_id: 'p-5', nome: 'Plotter Epson SureColor T3170 - Suprimentos', quantidade: 2, valor_unitario: 1700.0 },
+          { produto_id: 'srv-3', nome: 'Configuração de Rede Corporativa & VPN', quantidade: 1, valor_unitario: 790.0 },
+        ],
+      },
+      {
+        id: 'VD-PRD-2026-004',
+        cliente_id: 'gc-103',
+        cliente_nome: 'Roberto Viana Engenharia ME',
+        data_emissao: '2026-10-25T17:30:00Z',
+        valor_total: 1250.0,
+        status: 'confirmada',
+        liquidado_financeiro: true,
+        tipo: 'produto',
+        campo_vipz_indicador: '',
+        itens: [
+          { produto_id: 'p-1', nome: 'Kit Tintas Epson T544 Original Preto/Cores', quantidade: 5, valor_unitario: 250.0 },
         ],
       },
     ];
+  }
+
+  /**
+   * Catálogo de serviços cadastrados no ERP
+   */
+  public static async getServicos(): Promise<GestaoClickServico[]> {
+    if (this.isConfigured()) {
+      try {
+        const res = await fetch(`${this.getBaseUrl()}/api/servicos`, {
+          headers: this.getHeaders(),
+          next: { revalidate: 60 },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          return json.data || [];
+        }
+      } catch (err) {
+        console.warn('[GestãoClick] Falha ao consultar serviços da API:', err);
+      }
+    }
+
+    return [
+      { id: 'SRV-01', nome: 'Manutenção Preventiva e Calibração Epson', codigo: 'SRV-MANUT', valor: 180.0, categoria: 'Serviços Técnicos', ativo: true },
+      { id: 'SRV-02', nome: 'Limpeza e Desobstrução de Cabeça de Impressão', codigo: 'SRV-LIMPCAB', valor: 120.0, categoria: 'Serviços Técnicos', ativo: true },
+      { id: 'SRV-03', nome: 'Instalação e Configuração Remota de Impressora', codigo: 'SRV-CFGREM', valor: 90.0, categoria: 'Suporte TI', ativo: true },
+      { id: 'SRV-04', nome: 'Consultoria de Fluxo Documental e GED', codigo: 'SRV-GED', valor: 350.0, categoria: 'Consultoria', ativo: true },
+    ];
+  }
+
+  /**
+   * Unifica produtos e serviços do ERP para escolha na Gerência de Prêmios e Cupons
+   */
+  public static async getTodosItensErp(): Promise<Array<{ id: string; nome: string; codigo: string; valor: number; tipo: 'PRODUTO' | 'SERVICO'; estoque: number }>> {
+    const produtos = await this.getProdutosEstoque();
+    const servicos = await this.getServicos();
+
+    const itens = [
+      ...produtos.map((p) => ({
+        id: String(p.id),
+        nome: p.nome,
+        codigo: p.codigo || 'S/COD',
+        valor: p.preco_venda,
+        tipo: 'PRODUTO' as const,
+        estoque: p.estoque,
+      })),
+      ...servicos.map((s) => ({
+        id: String(s.id),
+        nome: s.nome,
+        codigo: s.codigo || 'S/COD',
+        valor: s.valor,
+        tipo: 'SERVICO' as const,
+        estoque: 999, // Serviços não limitados por estoque físico
+      })),
+    ];
+
+    return itens;
   }
 
   /**

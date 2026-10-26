@@ -27,6 +27,14 @@ import {
   Copy,
   Receipt,
   Users,
+  Settings,
+  Pencil,
+  Trash2,
+  Sliders,
+  Tag,
+  Package,
+  Layers,
+  HelpCircle,
 } from 'lucide-react';
 
 interface VipzCustomer {
@@ -51,23 +59,49 @@ interface VipzReward {
   category: string;
   pointsCost: number;
   stock: number;
+  active: boolean;
+  erpItemId?: string;
+  erpItemType?: string;
+  erpItemCode?: string;
+  originalPrice?: number;
+  rewardType?: string;
+  discountValue?: number;
+  validityDays?: number;
+  termsOfUse?: string;
   imageUrl?: string;
+}
+
+interface VipzRule {
+  id: string;
+  name: string;
+  code: string;
+  type: string;
+  description?: string;
+  pointsPerReal: number;
+  fixedPoints: number;
+  minSaleValue: number;
+  targetTier: string;
+  active: boolean;
 }
 
 export default function VipzInfogedPage() {
   const { currentUser } = useApp();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'clientes' | 'recompensas' | 'vendas_erp' | 'extrato'>('clientes');
+  const [activeTab, setActiveTab] = useState<'clientes' | 'recompensas' | 'vendas_erp' | 'extrato' | 'gerencia'>('clientes');
+  const [gerenciaSubTab, setGerenciaSubTab] = useState<'regras' | 'premios'>('regras');
 
-  // Busca e Seleção
+  const isAdminOrManager = currentUser?.role === 'ADMIN' || currentUser?.role === 'GERENTE';
+
+  // Busca e Seleção de Clientes
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  // Modais
+  // Modais de Operação
   const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
   const [creditSaleValue, setCreditSaleValue] = useState('');
   const [creditSaleDesc, setCreditSaleDesc] = useState('');
+  const [creditCampoVipz, setCreditCampoVipz] = useState('');
   const [isSubmittingCredit, setIsSubmittingCredit] = useState(false);
 
   const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
@@ -88,7 +122,35 @@ export default function VipzInfogedPage() {
   } | null>(null);
 
   const [copiedVoucher, setCopiedVoucher] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Modais da Gerência: Regras
+  const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<VipzRule | null>(null);
+  const [ruleName, setRuleName] = useState('');
+  const [ruleCode, setRuleCode] = useState('');
+  const [ruleType, setRuleType] = useState('BASICA');
+  const [ruleDesc, setRuleDesc] = useState('');
+  const [rulePointsPerReal, setRulePointsPerReal] = useState('1.0');
+  const [ruleFixedPoints, setRuleFixedPoints] = useState('0');
+  const [ruleMinSaleValue, setRuleMinSaleValue] = useState('0');
+  const [ruleTargetTier, setRuleTargetTier] = useState('TODOS');
+  const [ruleActive, setRuleActive] = useState(true);
+  const [isSubmittingRule, setIsSubmittingRule] = useState(false);
+
+  // Modais da Gerência: Prêmios & Cupons
+  const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
+  const [editingReward, setEditingReward] = useState<VipzReward | null>(null);
+  const [selectedErpItemId, setSelectedErpItemId] = useState('');
+  const [rewardTitle, setRewardTitle] = useState('');
+  const [rewardDesc, setRewardDesc] = useState('');
+  const [rewardType, setRewardType] = useState('PRODUTO');
+  const [rewardCategory, setRewardCategory] = useState('Brindes Vipz');
+  const [rewardPointsCost, setRewardPointsCost] = useState('500');
+  const [rewardStock, setRewardStock] = useState('10');
+  const [rewardDiscountVal, setRewardDiscountVal] = useState('');
+  const [rewardValidityDays, setRewardValidityDays] = useState('30');
+  const [rewardTerms, setRewardTerms] = useState('');
+  const [isSubmittingReward, setIsSubmittingReward] = useState(false);
 
   // Carregar dados da API
   const fetchData = async (query = '') => {
@@ -124,7 +186,9 @@ export default function VipzInfogedPage() {
     return data.customers.find((c: VipzCustomer) => c.id === selectedCustomerId) || data.customers[0] || null;
   }, [data, selectedCustomerId]);
 
-  // Função para efetuar resgate
+  // ==============================================================
+  // AÇÕES: RESGATE DE RECOMPENSA
+  // ==============================================================
   const handleRedeem = async (reward: VipzReward) => {
     if (!selectedCustomer) {
       alert('Por favor, selecione primeiro o cliente que irá resgatar este prêmio.');
@@ -148,7 +212,6 @@ export default function VipzInfogedPage() {
     if (!confirmResgate) return;
 
     try {
-      setActionError(null);
       const res = await fetch('/api/vipz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,7 +238,6 @@ export default function VipzInfogedPage() {
         newBalance: resJson.newBalance,
       });
 
-      // Atualiza listagem
       fetchData(searchQuery);
     } catch (err: any) {
       console.error(err);
@@ -183,7 +245,9 @@ export default function VipzInfogedPage() {
     }
   };
 
-  // Função para creditar venda confirmada
+  // ==============================================================
+  // AÇÕES: CREDITAR VENDA COM REGRA DUAL (BÁSICA + CONTADORES)
+  // ==============================================================
   const handleCreditSale = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomer) return;
@@ -202,7 +266,8 @@ export default function VipzInfogedPage() {
           action: 'CREDIT_SALE',
           customerId: selectedCustomer.id,
           saleValue: val,
-          description: creditSaleDesc || `Venda confirmada ERP - R$ ${val.toFixed(2)}`,
+          description: creditSaleDesc || `Venda de serviço confirmada - R$ ${val.toFixed(2)}`,
+          campoVipzIndicador: creditCampoVipz.trim(),
           userName: currentUser?.name || 'Atendente INFOGED',
         }),
       });
@@ -213,10 +278,16 @@ export default function VipzInfogedPage() {
         return;
       }
 
-      alert(`Sucesso! Foram creditados ${resJson.pointsEarned} pontos para ${selectedCustomer.name}!`);
+      let msg = `Sucesso!\n• ${selectedCustomer.name} recebeu +${resJson.buyerPoints} pontos (Regra Básica). Novo saldo: ${resJson.buyerNewBalance} pts.`;
+      if (resJson.partnerResult) {
+        msg += `\n• Contador/Parceiro (${resJson.partnerResult.partnerName}) recebeu +${resJson.partnerResult.pointsEarned} pontos (Regra Contadores). Novo saldo: ${resJson.partnerResult.newBalance} pts!`;
+      }
+
+      alert(msg);
       setIsCreditModalOpen(false);
       setCreditSaleValue('');
       setCreditSaleDesc('');
+      setCreditCampoVipz('');
       fetchData(searchQuery);
     } catch (err) {
       console.error(err);
@@ -226,46 +297,246 @@ export default function VipzInfogedPage() {
     }
   };
 
-  // Função para criar novo cliente
-  const handleCreateCustomer = async (e: React.FormEvent) => {
+  // ==============================================================
+  // AÇÕES: GERÊNCIA DE REGRAS DE PONTUAÇÃO (CRIAR, EDITAR, EXCLUIR)
+  // ==============================================================
+  const openNewRuleModal = () => {
+    setEditingRule(null);
+    setRuleName('');
+    setRuleCode('');
+    setRuleType('BASICA');
+    setRuleDesc('');
+    setRulePointsPerReal('1.0');
+    setRuleFixedPoints('0');
+    setRuleMinSaleValue('0');
+    setRuleTargetTier('TODOS');
+    setRuleActive(true);
+    setIsRuleModalOpen(true);
+  };
+
+  const openEditRuleModal = (rule: VipzRule) => {
+    setEditingRule(rule);
+    setRuleName(rule.name);
+    setRuleCode(rule.code);
+    setRuleType(rule.type);
+    setRuleDesc(rule.description || '');
+    setRulePointsPerReal(rule.pointsPerReal.toString());
+    setRuleFixedPoints(rule.fixedPoints.toString());
+    setRuleMinSaleValue(rule.minSaleValue.toString());
+    setRuleTargetTier(rule.targetTier);
+    setRuleActive(rule.active);
+    setIsRuleModalOpen(true);
+  };
+
+  const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCustName.trim() || !newCustCpf.trim()) {
-      alert('Nome e CPF/CNPJ são obrigatórios');
+    if (!ruleName.trim()) {
+      alert('Nome da regra é obrigatório.');
       return;
     }
 
     try {
-      setIsSubmittingNewCust(true);
+      setIsSubmittingRule(true);
+      const action = editingRule ? 'UPDATE_RULE' : 'CREATE_RULE';
+      const payload: any = {
+        action,
+        name: ruleName.trim(),
+        code: editingRule ? editingRule.code : ruleCode.trim() || ruleName.toUpperCase().replace(/\s+/g, '_'),
+        type: ruleType,
+        description: ruleDesc.trim(),
+        pointsPerReal: parseFloat(rulePointsPerReal) || 1.0,
+        fixedPoints: parseInt(ruleFixedPoints) || 0,
+        minSaleValue: parseFloat(ruleMinSaleValue) || 0,
+        targetTier: ruleTargetTier,
+        active: ruleActive,
+        userName: currentUser?.name || 'Gerente Vipz',
+      };
+      if (editingRule) payload.id = editingRule.id;
+
+      const res = await fetch('/api/vipz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) {
+        alert(resJson.error || 'Erro ao salvar regra');
+        return;
+      }
+
+      alert(editingRule ? 'Regra atualizada com sucesso!' : 'Regra cadastrada com sucesso!');
+      setIsRuleModalOpen(false);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar regra de pontuação');
+    } finally {
+      setIsSubmittingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (rule: VipzRule) => {
+    if (rule.code === 'BASICA' || rule.code === 'CONTADORES') {
+      alert(`A regra '${rule.name}' é um pilar essencial do sistema e não pode ser excluída. Você pode editá-la ou desativá-la.`);
+      return;
+    }
+
+    if (!window.confirm(`Tem certeza que deseja excluir permanentemente a regra '${rule.name}'?`)) return;
+
+    try {
       const res = await fetch('/api/vipz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'CREATE_CUSTOMER',
-          name: newCustName.trim(),
-          cpfCnpj: newCustCpf.trim(),
-          email: newCustEmail.trim() || null,
-          phone: newCustPhone.trim() || null,
+          action: 'DELETE_RULE',
+          id: rule.id,
+          userName: currentUser?.name || 'Gerente Vipz',
         }),
       });
 
       const resJson = await res.json();
       if (!res.ok) {
-        alert(resJson.error || 'Erro ao cadastrar cliente');
+        alert(resJson.error || 'Erro ao excluir regra');
         return;
       }
 
-      alert(`Cliente ${newCustName} cadastrado com sucesso! Foi concedido um bônus inicial de 100 pontos.`);
-      setIsNewCustomerModalOpen(false);
-      setNewCustName('');
-      setNewCustCpf('');
-      setNewCustEmail('');
-      setNewCustPhone('');
-      fetchData(newCustCpf.trim());
+      alert('Regra excluída com sucesso!');
+      fetchData();
     } catch (err) {
       console.error(err);
-      alert('Erro ao cadastrar cliente');
+      alert('Erro ao excluir regra');
+    }
+  };
+
+  // ==============================================================
+  // AÇÕES: GERÊNCIA DE PRÊMIOS & CUPONS (INTEGRADO COM ERP)
+  // ==============================================================
+  const openNewRewardModal = () => {
+    setEditingReward(null);
+    setSelectedErpItemId('');
+    setRewardTitle('');
+    setRewardDesc('');
+    setRewardType('PRODUTO');
+    setRewardCategory('Brindes Vipz');
+    setRewardPointsCost('500');
+    setRewardStock('10');
+    setRewardDiscountVal('');
+    setRewardValidityDays('30');
+    setRewardTerms('');
+    setIsRewardModalOpen(true);
+  };
+
+  const handleSelectErpItem = (erpId: string) => {
+    setSelectedErpItemId(erpId);
+    if (!erpId) return;
+
+    const item = data?.erpItems?.find((it: any) => it.id === erpId);
+    if (item) {
+      setRewardTitle(item.nome);
+      setRewardType(item.tipo === 'SERVICO' ? 'SERVICO' : 'PRODUTO');
+      setRewardCategory(item.tipo === 'SERVICO' ? 'Serviços Cortesia' : 'Brindes Vipz');
+      setRewardStock(item.estoque.toString());
+      setRewardPointsCost(Math.round(item.valor * 10).toString()); // Sugere 10 pts por real do preço
+    }
+  };
+
+  const openEditRewardModal = (reward: VipzReward) => {
+    setEditingReward(reward);
+    setRewardTitle(reward.title);
+    setRewardDesc(reward.description || '');
+    setRewardType(reward.rewardType || 'PRODUTO');
+    setRewardCategory(reward.category);
+    setRewardPointsCost(reward.pointsCost.toString());
+    setRewardStock(reward.stock.toString());
+    setRewardDiscountVal(reward.discountValue?.toString() || '');
+    setRewardValidityDays(reward.validityDays?.toString() || '30');
+    setRewardTerms(reward.termsOfUse || '');
+    setIsRewardModalOpen(true);
+  };
+
+  const handleSaveReward = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rewardTitle.trim() || !rewardPointsCost.trim()) {
+      alert('Título e Custo em Pontos são obrigatórios.');
+      return;
+    }
+
+    try {
+      setIsSubmittingReward(true);
+      const action = editingReward ? 'UPDATE_REWARD' : 'CREATE_REWARD';
+      const erpItem = data?.erpItems?.find((it: any) => it.id === selectedErpItemId);
+
+      const payload: any = {
+        action,
+        title: rewardTitle.trim(),
+        description: rewardDesc.trim(),
+        category: rewardCategory,
+        pointsCost: parseInt(rewardPointsCost),
+        stock: parseInt(rewardStock) || 0,
+        rewardType,
+        discountValue: rewardDiscountVal ? parseFloat(rewardDiscountVal) : null,
+        validityDays: parseInt(rewardValidityDays) || 30,
+        termsOfUse: rewardTerms.trim(),
+        userName: currentUser?.name || 'Gerente Vipz',
+      };
+
+      if (!editingReward && erpItem) {
+        payload.erpItemId = erpItem.id;
+        payload.erpItemType = erpItem.tipo;
+        payload.erpItemCode = erpItem.codigo;
+        payload.originalPrice = erpItem.valor;
+      }
+      if (editingReward) payload.id = editingReward.id;
+
+      const res = await fetch('/api/vipz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) {
+        alert(resJson.error || 'Erro ao salvar prêmio/cupom');
+        return;
+      }
+
+      alert(editingReward ? 'Prêmio atualizado com sucesso!' : 'Novo prêmio/cupom cadastrado no catálogo!');
+      setIsRewardModalOpen(false);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar prêmio');
     } finally {
-      setIsSubmittingNewCust(false);
+      setIsSubmittingReward(false);
+    }
+  };
+
+  const handleDeleteReward = async (reward: VipzReward) => {
+    if (!window.confirm(`Tem certeza que deseja remover '${reward.title}' do catálogo?`)) return;
+
+    try {
+      const res = await fetch('/api/vipz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'DELETE_REWARD',
+          id: reward.id,
+          userName: currentUser?.name || 'Gerente Vipz',
+        }),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) {
+        alert(resJson.error || 'Erro ao excluir');
+        return;
+      }
+
+      alert('Item removido com sucesso!');
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir item');
     }
   };
 
@@ -321,7 +592,7 @@ export default function VipzInfogedPage() {
             </h1>
 
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
-              Consulte pontos de clientes, converta faturamento ERP em vantagens exclusivas e emita vouchers de resgate de produtos e serviços.
+              Consulte pontos de clientes, converta faturamento ERP em vantagens exclusivas, bonifique contadores parceiros e emita vouchers de resgate.
             </p>
           </div>
 
@@ -368,19 +639,17 @@ export default function VipzInfogedPage() {
             </span>
           </div>
           <div className="bg-[#061C14]/70 p-3 rounded-xl border border-emerald-800/30">
-            <span className="text-[11px] text-slate-400 block">Faturamento Fidelizado</span>
-            <span className="text-lg font-black text-emerald-400">
-              R$ {data?.metrics?.totalSpentGlobal ? Number(data.metrics.totalSpentGlobal).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}
-            </span>
+            <span className="text-[11px] text-slate-400 block">Regras Ativas</span>
+            <span className="text-lg font-black text-emerald-400">{data?.metrics?.totalRules ?? 2} regras</span>
           </div>
           <div className="bg-[#061C14]/70 p-3 rounded-xl border border-emerald-800/30">
-            <span className="text-[11px] text-slate-400 block">Prêmios Resgatados</span>
-            <span className="text-lg font-black text-cyan-300">{data?.metrics?.totalRedemptionsCount ?? 0} vouchers</span>
+            <span className="text-[11px] text-slate-400 block">Catálogo de Prêmios</span>
+            <span className="text-lg font-black text-cyan-300">{data?.metrics?.totalRewards ?? 5} itens</span>
           </div>
         </div>
       </div>
 
-      {/* Navegação entre Abas */}
+      {/* Navegação entre Abas Principais */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-2">
         <div className="flex items-center gap-2 overflow-x-auto text-xs font-bold">
           <button
@@ -404,7 +673,7 @@ export default function VipzInfogedPage() {
             }`}
           >
             <Gift className="w-4 h-4 text-amber-400" />
-            <span>Catálogo de Prêmios & Vouchers</span>
+            <span>Catálogo de Prêmios</span>
           </button>
 
           <button
@@ -416,7 +685,7 @@ export default function VipzInfogedPage() {
             }`}
           >
             <Receipt className="w-4 h-4 text-cyan-400" />
-            <span>Vendas ERP (Gestão Click)</span>
+            <span>Vendas ERP & Regra VIPZ</span>
           </button>
 
           <button
@@ -430,6 +699,21 @@ export default function VipzInfogedPage() {
             <FileText className="w-4 h-4 text-purple-400" />
             <span>Extrato Global</span>
           </button>
+
+          {/* ABA GERÊNCIA (ADMIN E GERENTE) */}
+          {isAdminOrManager && (
+            <button
+              onClick={() => setActiveTab('gerencia')}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
+                activeTab === 'gerencia'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                  : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border-amber-300'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-amber-300" />
+              <span>Gerência Vipz</span>
+            </button>
+          )}
         </div>
 
         <button
@@ -446,7 +730,6 @@ export default function VipzInfogedPage() {
       {/* ============================================================== */}
       {activeTab === 'clientes' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Coluna Esquerda: Busca e Lista de Clientes */}
           <div className="lg:col-span-5 space-y-4">
             <form onSubmit={handleSearch} className="relative">
               <input
@@ -510,11 +793,9 @@ export default function VipzInfogedPage() {
             )}
           </div>
 
-          {/* Coluna Direita: Cartão do Cliente Selecionado & Ações */}
           <div className="lg:col-span-7">
             {selectedCustomer ? (
               <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
-                {/* Cabeçalho do Cartão */}
                 <div className="flex flex-wrap items-start justify-between gap-4 pb-6 border-b border-slate-100">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -529,7 +810,6 @@ export default function VipzInfogedPage() {
                     </div>
                   </div>
 
-                  {/* Saldo de Pontos */}
                   <div className="bg-gradient-to-br from-amber-500 to-amber-700 text-white px-5 py-3 rounded-2xl shadow-md text-right">
                     <span className="text-[10px] uppercase font-bold tracking-wider text-amber-200 block">Saldo Atual</span>
                     <span className="text-2xl font-black">{selectedCustomer.pointsBalance}</span>
@@ -537,10 +817,14 @@ export default function VipzInfogedPage() {
                   </div>
                 </div>
 
-                {/* Botões Rápidos de Ação */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
-                    onClick={() => setIsCreditModalOpen(true)}
+                    onClick={() => {
+                      setCreditSaleValue('');
+                      setCreditSaleDesc('');
+                      setCreditCampoVipz('');
+                      setIsCreditModalOpen(true);
+                    }}
                     className="p-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-emerald-900 transition flex items-center justify-between text-xs font-bold"
                   >
                     <div className="flex items-center gap-2.5">
@@ -572,7 +856,6 @@ export default function VipzInfogedPage() {
                   </button>
                 </div>
 
-                {/* Extrato Recente do Cliente */}
                 <div className="space-y-3">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -650,7 +933,7 @@ export default function VipzInfogedPage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data?.rewards?.map((reward: VipzReward) => {
+            {data?.rewards?.filter((r: any) => r.active).map((reward: VipzReward) => {
               const hasEnoughPoints = selectedCustomer ? selectedCustomer.pointsBalance >= reward.pointsCost : false;
               const hasStock = reward.stock > 0;
 
@@ -669,7 +952,7 @@ export default function VipzInfogedPage() {
                           hasStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {hasStock ? `${reward.stock} em estoque` : 'Esgotado'}
+                        {hasStock ? `${reward.stock} disponível` : 'Esgotado'}
                       </span>
                     </div>
 
@@ -680,6 +963,11 @@ export default function VipzInfogedPage() {
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                         {reward.description || 'Válido para troca imediata no balcão INFOGED.'}
                       </p>
+                      {reward.termsOfUse && (
+                        <p className="text-[10px] text-amber-800 mt-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                          {reward.termsOfUse}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -720,7 +1008,7 @@ export default function VipzInfogedPage() {
       )}
 
       {/* ============================================================== */}
-      {/* ABA 3: VENDAS DO ERP (GESTÃO CLICK)                             */}
+      {/* ABA 3: VENDAS DO ERP & REGRA VIPZ (DEMONSTRAÇÃO DA REGRA)      */}
       {/* ============================================================== */}
       {activeTab === 'vendas_erp' && (
         <div className="space-y-4">
@@ -728,81 +1016,117 @@ export default function VipzInfogedPage() {
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-600" />
-                Vendas Confirmadas no ERP com Faturamento Liquidado
+                Vendas Confirmadas no ERP com Associação no Campo VIPZ
               </h3>
               <p className="text-slate-500 text-[11px]">
-                Compras faturadas no Gestão Click aptas a pontuar no programa de fidelidade.
+                Regra ativa: Se o campo VIPZ contiver o nome de outro cliente (ex.: Contador), ambos pontuam!
               </p>
             </div>
             <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-full font-bold text-[11px]">
-              {data?.erpSales?.length ?? 0} Vendas Disponíveis
+              {data?.erpSales?.length ?? 0} Vendas Faturadas
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data?.erpSales?.map((sale: any) => (
-              <div key={sale.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                      {sale.id}
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Pago / Liquidado
-                    </span>
-                  </div>
+            {data?.erpSales?.map((sale: any) => {
+              const temContador = Boolean(sale.campo_vipz_indicador && sale.campo_vipz_indicador.trim());
 
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900">{sale.cliente_nome}</h4>
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      {new Date(sale.data_emissao).toLocaleDateString('pt-BR')}
-                    </span>
-                  </div>
+              return (
+                <div key={sale.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-300 transition">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {sale.id}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Faturado / Liquidado
+                      </span>
+                    </div>
 
-                  {/* Itens */}
-                  <div className="space-y-1 pt-2 border-t border-slate-100 text-[11px] text-slate-600">
-                    {sale.itens?.map((it: any, idx: number) => (
-                      <div key={idx} className="flex justify-between">
-                        <span className="line-clamp-1">{it.quantidade}x {it.nome}</span>
-                        <span className="font-mono text-slate-500">R$ {it.valor_unitario.toFixed(2)}</span>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Cliente da Venda</span>
+                      <h4 className="text-xs font-bold text-slate-900">{sale.cliente_nome}</h4>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(sale.data_emissao).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
+
+                    {/* Destaque do Campo VIPZ (Regra de Contadores) */}
+                    <div className={`p-3 rounded-xl border text-[11px] space-y-1 ${
+                      temContador
+                        ? 'bg-purple-50/70 border-purple-200 text-purple-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <Crown className="w-3.5 h-3.5 text-purple-600" />
+                          Campo VIPZ:
+                        </span>
+                        <span className="font-bold text-[10px]">
+                          {temContador ? 'Preenchido' : 'Em Branco'}
+                        </span>
                       </div>
-                    ))}
+
+                      {temContador ? (
+                        <div>
+                          <span className="font-extrabold text-purple-950 block">{sale.campo_vipz_indicador}</span>
+                          <span className="text-[10px] text-purple-700">
+                            Regra Dual: O cliente recebe pontos normais e este contador recebe a pontuação parceira!
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-500">
+                          Apenas o cliente titular receberá pontos pela regra básica.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Itens */}
+                    <div className="space-y-1 pt-1 text-[11px] text-slate-600">
+                      {sale.itens?.map((it: any, idx: number) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="line-clamp-1">{it.quantidade}x {it.nome}</span>
+                          <span className="font-mono text-slate-500">R$ {it.valor_unitario.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Total da Venda</span>
+                      <span className="text-sm font-black text-slate-900">R$ {sale.valor_total.toFixed(2)}</span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const matchedCust = data?.customers?.find((c: VipzCustomer) =>
+                          c.name.toLowerCase().includes(sale.cliente_nome.toLowerCase()) ||
+                          sale.cliente_nome.toLowerCase().includes(c.name.toLowerCase())
+                        );
+
+                        if (matchedCust) {
+                          setSelectedCustomerId(matchedCust.id);
+                          setCreditSaleValue(sale.valor_total.toString());
+                          setCreditSaleDesc(`Venda ERP #${sale.id} - ${sale.itens?.[0]?.nome || 'Serviços'}`);
+                          setCreditCampoVipz(sale.campo_vipz_indicador || '');
+                          setIsCreditModalOpen(true);
+                        } else {
+                          alert(`Cliente "${sale.cliente_nome}" ainda não possui cadastro no Vipz. Por favor, cadastre-o primeiro.`);
+                          setNewCustName(sale.cliente_nome);
+                          setIsNewCustomerModalOpen(true);
+                        }
+                      }}
+                      className="px-3.5 py-1.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Processar Pontuação</span>
+                    </button>
                   </div>
                 </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Total Pago</span>
-                    <span className="text-sm font-black text-slate-900">R$ {sale.valor_total.toFixed(2)}</span>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      // Procura cliente pelo ID ou nome
-                      const matchedCust = data?.customers?.find((c: VipzCustomer) =>
-                        c.name.toLowerCase().includes(sale.cliente_nome.toLowerCase()) ||
-                        sale.cliente_nome.toLowerCase().includes(c.name.toLowerCase())
-                      );
-                      if (matchedCust) {
-                        setSelectedCustomerId(matchedCust.id);
-                        setCreditSaleValue(sale.valor_total.toString());
-                        setCreditSaleDesc(`Venda ERP #${sale.id} - ${sale.itens?.[0]?.nome || 'Produtos e Insumos'}`);
-                        setIsCreditModalOpen(true);
-                      } else {
-                        alert(`Cliente "${sale.cliente_nome}" ainda não possui cadastro no Vipz. Por favor, cadastre-o primeiro.`);
-                        setNewCustName(sale.cliente_nome);
-                        setIsNewCustomerModalOpen(true);
-                      }
-                    }}
-                    className="px-3.5 py-1.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Pontuar Venda</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -857,7 +1181,217 @@ export default function VipzInfogedPage() {
       )}
 
       {/* ============================================================== */}
-      {/* MODAL: LANÇAR CRÉDITO DE VENDA                                 */}
+      {/* ABA 5: GERÊNCIA VIPZ (REGRAS DE PONTUAÇÃO & PRÊMIOS DO ERP)    */}
+      {/* ============================================================== */}
+      {activeTab === 'gerencia' && isAdminOrManager && (
+        <div className="space-y-6">
+          {/* Submenu da Gerência */}
+          <div className="bg-amber-50/80 border border-amber-300 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setGerenciaSubTab('regras')}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  gerenciaSubTab === 'regras'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Regras de Pontuação ({data?.rules?.length ?? 0})</span>
+              </button>
+
+              <button
+                onClick={() => setGerenciaSubTab('premios')}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  gerenciaSubTab === 'premios'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                <Gift className="w-3.5 h-3.5" />
+                <span>Gestão de Prêmios & Cupons ({data?.rewards?.length ?? 0})</span>
+              </button>
+            </div>
+
+            {gerenciaSubTab === 'regras' ? (
+              <button
+                onClick={openNewRuleModal}
+                className="px-3.5 py-1.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-amber-400" />
+                <span>Nova Regra de Pontuação</span>
+              </button>
+            ) : (
+              <button
+                onClick={openNewRewardModal}
+                className="px-3.5 py-1.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-amber-400" />
+                <span>Novo Prêmio ou Cupom (do ERP)</span>
+              </button>
+            )}
+          </div>
+
+          {/* SUB-ABA 1: REGRAS DE PONTUAÇÃO */}
+          {gerenciaSubTab === 'regras' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data?.rules?.map((rule: VipzRule) => {
+                  const isProtected = rule.code === 'BASICA' || rule.code === 'CONTADORES';
+
+                  return (
+                    <div
+                      key={rule.id}
+                      className={`p-5 bg-white rounded-2xl border shadow-sm flex flex-col justify-between space-y-4 transition ${
+                        rule.active ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            rule.code === 'BASICA'
+                              ? 'bg-blue-100 text-blue-900'
+                              : rule.code === 'CONTADORES'
+                              ? 'bg-purple-100 text-purple-900'
+                              : 'bg-emerald-100 text-emerald-900'
+                          }`}>
+                            {rule.code}
+                          </span>
+
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            rule.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                          }`}>
+                            {rule.active ? 'Ativa' : 'Inativa'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900">{rule.name}</h4>
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                            {rule.description || 'Regra de conversão de pontos.'}
+                          </p>
+                        </div>
+
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Paridade:</span>
+                            <span className="font-bold text-slate-800">
+                              R$ 1,00 = {rule.pointsPerReal} {rule.pointsPerReal === 1 ? 'ponto' : 'pontos'}
+                            </span>
+                          </div>
+                          {rule.fixedPoints > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Bônus Fixo:</span>
+                              <span className="font-bold text-emerald-700">+{rule.fixedPoints} pts</span>
+                            </div>
+                          )}
+                          {rule.minSaleValue > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Valor Mínimo:</span>
+                              <span className="font-bold text-slate-800">R$ {rule.minSaleValue.toFixed(2)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openEditRuleModal(rule)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Editar</span>
+                        </button>
+
+                        {!isProtected && (
+                          <button
+                            onClick={() => handleDeleteRule(rule)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                            title="Excluir regra"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 2: PRÊMIOS & CUPONS (INTEGRADO COM ERP) */}
+          {gerenciaSubTab === 'premios' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data?.rewards?.map((reward: VipzReward) => (
+                  <div
+                    key={reward.id}
+                    className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                          {reward.category}
+                        </span>
+
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          reward.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {reward.active ? 'No Catálogo' : 'Pausado'}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900">{reward.title}</h4>
+                        <p className="text-xs text-slate-500 mt-1">{reward.description}</p>
+                      </div>
+
+                      <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-amber-900 font-medium">Custo do Resgate:</span>
+                          <span className="font-black text-amber-700">{reward.pointsCost} pontos</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-amber-900 font-medium">Estoque Disponível:</span>
+                          <span className="font-bold text-slate-800">{reward.stock} un</span>
+                        </div>
+                        {reward.originalPrice && (
+                          <div className="flex justify-between">
+                            <span className="text-amber-900 font-medium">Valor no ERP:</span>
+                            <span className="font-mono text-slate-600">R$ {reward.originalPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => openEditRewardModal(reward)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Editar</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteReward(reward)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        title="Excluir item"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: LANÇAR CRÉDITO DE VENDA (COM CAMPO VIPZ)                */}
       {/* ============================================================== */}
       {isCreditModalOpen && selectedCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
@@ -868,7 +1402,7 @@ export default function VipzInfogedPage() {
                   <Plus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Creditar Pontos por Venda</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Pontuar Venda no Vipz</h3>
                   <span className="text-[11px] text-slate-500">{selectedCustomer.name}</span>
                 </div>
               </div>
@@ -883,7 +1417,7 @@ export default function VipzInfogedPage() {
             <form onSubmit={handleCreditSale} className="space-y-4 text-xs">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Valor da Venda Confirmada no ERP (R$)
+                  Valor da Venda / Serviço Faturado (R$)
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 text-slate-400 font-bold">R$</span>
@@ -897,32 +1431,39 @@ export default function VipzInfogedPage() {
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-600"
                   />
                 </div>
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Cálculo automático: Paridade base R$ 1,00 = 1 ponto + Bônus da categoria {selectedCustomer.tier}.
+              </div>
+
+              {/* CAMPO VIPZ (CONTADOR / PARCEIRO) */}
+              <div>
+                <label className="block text-[11px] font-bold text-purple-900 mb-1 flex items-center gap-1.5">
+                  <Crown className="w-3.5 h-3.5 text-purple-600" />
+                  Campo VIPZ (Nome do Contador ou Parceiro Associado)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Deixe em branco se não houver contador parceiro"
+                  value={creditCampoVipz}
+                  onChange={(e) => setCreditCampoVipz(e.target.value)}
+                  className="w-full px-3 py-2 border border-purple-300 rounded-xl focus:outline-none focus:border-purple-600 bg-purple-50/30"
+                />
+                <span className="text-[10px] text-purple-700 mt-1 block">
+                  {creditCampoVipz.trim()
+                    ? `✓ Regra Contadores ativada para "${creditCampoVipz.trim()}". Ambos receberão pontos!`
+                    : 'Campo em branco: apenas o cliente titular pontuará pela Regra Básica.'}
                 </span>
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Descrição ou Número do Pedido/NF
+                  Descrição da Venda / O.S.
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Pedido ERP #9102 - Tinta e Papel Fotográfico"
+                  placeholder="Ex: Contrato Manutenção #9102"
                   value={creditSaleDesc}
                   onChange={(e) => setCreditSaleDesc(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-600"
                 />
-              </div>
-
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-amber-900">Pontos a Gerar:</span>
-                <span className="text-base font-black text-amber-700">
-                  {creditSaleValue && !isNaN(parseFloat(creditSaleValue))
-                    ? Math.round(parseFloat(creditSaleValue) * (selectedCustomer.tier === 'VIPZ_BLACK' ? 2.0 : selectedCustomer.tier === 'OURO' ? 1.5 : selectedCustomer.tier === 'PRATA' ? 1.2 : 1.0))
-                    : 0}{' '}
-                  pts
-                </span>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -939,7 +1480,285 @@ export default function VipzInfogedPage() {
                   className="w-1/2 py-2.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {isSubmittingCredit ? <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Confirmar Crédito
+                  Confirmar Pontuação
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: CRIAR OU EDITAR REGRA DE PONTUAÇÃO                      */}
+      {/* ============================================================== */}
+      {isRuleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-amber-500/30 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {editingRule ? `Editar Regra: ${editingRule.name}` : 'Nova Regra de Pontuação'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsRuleModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRule} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome da Regra</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Pontuação Especial de Serviços"
+                  value={ruleName}
+                  onChange={(e) => setRuleName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              {!editingRule && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Código Identificador</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: REGRA_SERVICOS_PREMIUM"
+                    value={ruleCode}
+                    onChange={(e) => setRuleCode(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono uppercase focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Pontos por Real (R$)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="1.0"
+                    value={rulePointsPerReal}
+                    onChange={(e) => setRulePointsPerReal(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Bônus Fixo em Pontos</label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={ruleFixedPoints}
+                    onChange={(e) => setRuleFixedPoints(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Descrição</label>
+                <textarea
+                  rows={2}
+                  placeholder="Explicação da regra de pontuação..."
+                  value={ruleDesc}
+                  onChange={(e) => setRuleDesc(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="ruleActiveCheck"
+                  checked={ruleActive}
+                  onChange={(e) => setRuleActive(e.target.checked)}
+                  className="rounded text-amber-600 focus:ring-0"
+                />
+                <label htmlFor="ruleActiveCheck" className="text-xs font-bold text-slate-700">
+                  Regra ativa e pontuando
+                </label>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRuleModalOpen(false)}
+                  className="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingRule}
+                  className="w-1/2 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  {isSubmittingRule ? <RefreshCw className="w-4 h-4 animate-spin text-white" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Salvar Regra
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: CRIAR OU EDITAR PRÊMIO / CUPOM (DO ERP)                 */}
+      {/* ============================================================== */}
+      {isRewardModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-amber-500/30 space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center">
+                  <Gift className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {editingReward ? `Editar: ${editingReward.title}` : 'Novo Prêmio / Cupom (do ERP)'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsRewardModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveReward} className="space-y-3.5 text-xs">
+              {/* Seletor de Item do ERP Gestão Click (apenas na criação) */}
+              {!editingReward && (
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
+                  <label className="block text-[11px] font-bold text-amber-900">
+                    Selecione um Produto ou Serviço do seu ERP Gestão Click:
+                  </label>
+                  <select
+                    value={selectedErpItemId}
+                    onChange={(e) => handleSelectErpItem(e.target.value)}
+                    className="w-full px-3 py-2 border border-amber-300 rounded-xl bg-white font-medium text-xs focus:outline-none focus:border-amber-600"
+                  >
+                    <option value="">-- Escolha um item do ERP ou cadastre avulso --</option>
+                    {data?.erpItems?.map((it: any) => (
+                      <option key={it.id} value={it.id}>
+                        [{it.tipo}] {it.nome} - R$ {it.valor.toFixed(2)} ({it.estoque} em estoque)
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-amber-800 block">
+                    Ao selecionar, o sistema preenche o título, categoria, preço e estoque automaticamente.
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Título da Recompensa</label>
+                <input
+                  type="text"
+                  placeholder="Nome exibido no catálogo"
+                  value={rewardTitle}
+                  onChange={(e) => setRewardTitle(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Custo em Pontos</label>
+                  <input
+                    type="number"
+                    placeholder="Ex: 500"
+                    value={rewardPointsCost}
+                    onChange={(e) => setRewardPointsCost(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-amber-700 focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Estoque Disponível</label>
+                  <input
+                    type="number"
+                    placeholder="10"
+                    value={rewardStock}
+                    onChange={(e) => setRewardStock(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipo de Recompensa</label>
+                  <select
+                    value={rewardType}
+                    onChange={(e) => setRewardType(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white focus:outline-none focus:border-amber-600"
+                  >
+                    <option value="PRODUTO">Produto Físico / Brinde</option>
+                    <option value="SERVICO">Serviço Cortesia</option>
+                    <option value="CUPOM_VALOR">Cupom de Desconto em R$</option>
+                    <option value="CUPOM_PERCENTUAL">Cupom de Desconto em %</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade do Cupom (Dias)</label>
+                  <input
+                    type="number"
+                    placeholder="30"
+                    value={rewardValidityDays}
+                    onChange={(e) => setRewardValidityDays(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Descrição do Prêmio</label>
+                <textarea
+                  rows={2}
+                  placeholder="Detalhes sobre o produto ou benefício..."
+                  value={rewardDesc}
+                  onChange={(e) => setRewardDesc(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Regras / Termos de Uso do Voucher</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Válido exclusivamente em ordens de serviço acima de R$ 100."
+                  value={rewardTerms}
+                  onChange={(e) => setRewardTerms(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRewardModalOpen(false)}
+                  className="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReward}
+                  className="w-1/2 py-2.5 bg-[#07241A] hover:bg-[#0E3A2B] text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  {isSubmittingReward ? <RefreshCw className="w-4 h-4 animate-spin text-white" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Salvar Prêmio
                 </button>
               </div>
             </form>
@@ -971,7 +1790,47 @@ export default function VipzInfogedPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateCustomer} className="space-y-3.5 text-xs">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newCustName.trim() || !newCustCpf.trim()) {
+                  alert('Nome e CPF/CNPJ são obrigatórios');
+                  return;
+                }
+                try {
+                  setIsSubmittingNewCust(true);
+                  const res = await fetch('/api/vipz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'CREATE_CUSTOMER',
+                      name: newCustName.trim(),
+                      cpfCnpj: newCustCpf.trim(),
+                      email: newCustEmail.trim() || null,
+                      phone: newCustPhone.trim() || null,
+                    }),
+                  });
+                  const resJson = await res.json();
+                  if (!res.ok) {
+                    alert(resJson.error || 'Erro ao cadastrar');
+                    return;
+                  }
+                  alert(`Cliente ${newCustName} cadastrado com sucesso!`);
+                  setIsNewCustomerModalOpen(false);
+                  setNewCustName('');
+                  setNewCustCpf('');
+                  setNewCustEmail('');
+                  setNewCustPhone('');
+                  fetchData(newCustCpf.trim());
+                } catch (err) {
+                  console.error(err);
+                  alert('Erro ao cadastrar');
+                } finally {
+                  setIsSubmittingNewCust(false);
+                }
+              }}
+              className="space-y-3.5 text-xs"
+            >
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome Completo / Razão Social</label>
                 <input
@@ -1059,7 +1918,6 @@ export default function VipzInfogedPage() {
               <p className="text-xs text-slate-500">Emitido para: <strong>{voucherModal.customerName}</strong></p>
             </div>
 
-            {/* Código do Voucher */}
             <div className="p-4 bg-slate-900 rounded-2xl text-amber-300 space-y-1">
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Código de Validação</span>
               <span className="text-2xl font-black font-mono tracking-wider">{voucherModal.voucherCode}</span>

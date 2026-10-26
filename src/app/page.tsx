@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  Lock,
 } from 'lucide-react';
 
 export default function InfogedHubPage() {
@@ -28,6 +29,28 @@ export default function InfogedHubPage() {
 
   const userRole = (currentUser?.role || 'TECNICO').toUpperCase();
   const isAdminOrManager = userRole === 'ADMIN' || userRole === 'GERENTE';
+
+  // Obter lista de permissões do usuário
+  const userPermissions: string[] = React.useMemo(() => {
+    try {
+      if (Array.isArray(currentUser?.permissions)) return currentUser.permissions;
+      return JSON.parse(currentUser?.permissions || '[]');
+    } catch {
+      return [];
+    }
+  }, [currentUser]);
+
+  // Função para verificar se o usuário tem permissão para o aplicativo
+  const hasAccessTo = (appId: string) => {
+    if (userRole === 'ADMIN') return true;
+    if (userPermissions.includes('ALL')) return true;
+    if (userPermissions.includes(appId)) return true;
+    // Fallback para Epson CSA para usuários legados
+    if (appId === 'APP_EPSON_OS' && !userPermissions.some((p: string) => p.startsWith('APP_'))) {
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     const fetchQuickMetrics = async () => {
@@ -51,6 +74,11 @@ export default function InfogedHubPage() {
   const tmfVal = quickMetrics?.kpis?.tmf ?? 8.7;
   const currentTier = quickMetrics?.classMensal ?? 'GOLD';
 
+  const canAccessEpson = hasAccessTo('APP_EPSON_OS');
+  const canAccessEstoque = hasAccessTo('APP_ESTOQUE');
+  const canAccessChamados = hasAccessTo('APP_CHAMADOS');
+  const canAccessGestao = isAdminOrManager || hasAccessTo('APP_GESTAO');
+
   return (
     <div className="space-y-8 pb-10">
       {/* Banner Principal de Boas-Vindas INFOGED */}
@@ -70,7 +98,7 @@ export default function InfogedHubPage() {
             </h1>
 
             <p className="text-sm text-slate-300 max-w-xl leading-relaxed">
-              Bem-vindo à sua central de aplicativos. Aqui você tem acesso seguro e em tempo real a todas as ferramentas autorizadas para o seu perfil.
+              Bem-vindo à sua central de aplicativos corporativos. Aqui você acessa os sistemas autorizados para o seu perfil.
             </p>
           </div>
 
@@ -102,11 +130,11 @@ export default function InfogedHubPage() {
               <span>Aplicativos & Módulos Disponíveis</span>
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Selecione o módulo operacional desejado para iniciar os trabalhos.
+              Apenas os aplicativos liberados para o seu cadastro aparecem habilitados abaixo.
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 text-slate-700">
-            {isAdminOrManager ? '4 Módulos' : '2 Módulos'}
+            {canAccessGestao ? '4 Módulos' : '3 Módulos'}
           </span>
         </div>
 
@@ -114,7 +142,13 @@ export default function InfogedHubPage() {
           {/* ============================================================== */}
           {/* MÓDULO 1: EPSON CSA - GESTÃO DE O.S. & SLA (ATIVO E COMPLETO) */}
           {/* ============================================================== */}
-          <div className="group relative bg-white rounded-2xl p-6 shadow-sm hover:shadow-xl border border-slate-200 hover:border-emerald-500 transition-all duration-300 flex flex-col justify-between overflow-hidden">
+          <div
+            className={`group relative bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 flex flex-col justify-between overflow-hidden ${
+              canAccessEpson
+                ? 'hover:shadow-xl border-slate-200 hover:border-emerald-500'
+                : 'opacity-70 border-slate-200 bg-slate-50/60'
+            }`}
+          >
             <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-blue-500/10 via-cyan-500/5 to-transparent rounded-bl-full pointer-events-none transition group-hover:scale-125" />
 
             <div>
@@ -123,10 +157,17 @@ export default function InfogedHubPage() {
                 <div className="w-12 h-12 rounded-xl bg-[#002B49] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition">
                   <FileSpreadsheet className="w-6 h-6 text-cyan-300" />
                 </div>
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Em Produção</span>
-                </div>
+                {canAccessEpson ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Em Produção</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold">
+                    <Lock className="w-3 h-3 text-slate-500" />
+                    <span>Não Liberado</span>
+                  </div>
+                )}
               </div>
 
               {/* Informações */}
@@ -168,20 +209,28 @@ export default function InfogedHubPage() {
 
             {/* Ações */}
             <div className="space-y-2 pt-2 border-t border-slate-100">
-              <Link
-                href="/os"
-                className="w-full py-2.5 px-4 bg-[#002B49] hover:bg-[#001B30] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2 group-hover:bg-emerald-800"
-              >
-                <span>Acessar Painel de O.S.</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link
-                href="/epson"
-                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5"
-              >
-                <Gauge className="w-3.5 h-3.5 text-slate-500" />
-                <span>Ver Indicadores & Manômetros</span>
-              </Link>
+              {canAccessEpson ? (
+                <>
+                  <Link
+                    href="/os"
+                    className="w-full py-2.5 px-4 bg-[#002B49] hover:bg-[#001B30] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2 group-hover:bg-emerald-800"
+                  >
+                    <span>Acessar Painel de O.S.</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                  <Link
+                    href="/epson"
+                    className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5"
+                  >
+                    <Gauge className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Ver Indicadores & Manômetros</span>
+                  </Link>
+                </>
+              ) : (
+                <div className="p-2 text-center text-xs text-slate-500 bg-slate-100 rounded-xl font-medium">
+                  Contate o administrador para liberar este módulo.
+                </div>
+              )}
             </div>
           </div>
 
@@ -222,7 +271,7 @@ export default function InfogedHubPage() {
               disabled
               className="w-full py-2.5 px-4 bg-slate-100 text-slate-400 text-xs font-bold rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <span>Em Breve</span>
+              <span>{canAccessEstoque ? 'Em Breve' : 'Não Liberado'}</span>
             </button>
           </div>
 
@@ -263,26 +312,26 @@ export default function InfogedHubPage() {
               disabled
               className="w-full py-2.5 px-4 bg-slate-100 text-slate-400 text-xs font-bold rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <span>Em Breve</span>
+              <span>{canAccessChamados ? 'Em Breve' : 'Não Liberado'}</span>
             </button>
           </div>
 
           {/* ============================================================== */}
           {/* MÓDULO 4: GESTÃO CORPORATIVA & SEGURANÇA (ADMIN / GERENTE)      */}
           {/* ============================================================== */}
-          {isAdminOrManager && (
-            <div className="relative bg-gradient-to-br from-slate-900 to-[#0A261D] rounded-2xl p-6 shadow-sm border border-emerald-900/60 text-white flex flex-col justify-between md:col-span-2 lg:col-span-3 overflow-hidden">
+          {canAccessGestao && (
+            <div className="relative bg-gradient-to-br from-slate-900 to-[#07241A] rounded-2xl p-6 shadow-sm border border-emerald-900/60 text-white flex flex-col justify-between md:col-span-2 lg:col-span-3 overflow-hidden">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold uppercase">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Área Administrativa Central</span>
+                    <span>Gestão Central da Plataforma INFOGED</span>
                   </div>
                   <h3 className="text-lg font-black text-white">
-                    Gestão de Usuários, Permissões & Auditoria Global
+                    Gestão Geral de Usuários & Permissões por Aplicativo
                   </h3>
                   <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-                    Cadastre novos colaboradores, altere permissões de acesso aos módulos, monitore bloqueios de segurança por senha e consulte a trilha de auditoria corporativa.
+                    Cadastre novos colaboradores, selecione a quais aplicativos cada usuário terá acesso, desbloqueie contas e audite o histórico de ações.
                   </p>
                 </div>
 
@@ -292,7 +341,7 @@ export default function InfogedHubPage() {
                     className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition flex items-center gap-2"
                   >
                     <Users className="w-4 h-4" />
-                    <span>Usuários & Logs</span>
+                    <span>Acessar Gestão de Usuários</span>
                   </Link>
 
                   <Link

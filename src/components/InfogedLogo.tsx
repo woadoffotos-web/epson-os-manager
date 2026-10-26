@@ -15,15 +15,18 @@ export default function InfogedLogo({
   height = 36,
   alt = 'INFOGED Soluções Tecnológicas',
 }: InfogedLogoProps) {
+  // Se white for true, usa a versão transparente com letras e ícone em branco puro
+  // Se for false, usa a versão colorida oficial
+  const imageSrc = white ? '/infoged-white.png' : '/infoged-color.png';
+
   return (
     <div className={`inline-flex items-center ${className}`}>
       <img
-        src="/infoged-logo.png"
+        src={imageSrc}
         alt={alt}
         style={{
           height: `${height}px`,
           width: 'auto',
-          filter: white ? 'brightness(0) invert(1)' : 'none',
         }}
         className="transition-all duration-300 object-contain drop-shadow-sm select-none"
       />

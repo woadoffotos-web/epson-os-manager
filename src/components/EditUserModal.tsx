@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle, Loader2, Edit3, ShieldAlert } from 'lucide-react';
+import { X, AlertCircle, Loader2, Edit3, ShieldAlert, Layers, CheckSquare, Square } from 'lucide-react';
 
 interface EditUserModalProps {
   isOpen: boolean;
@@ -10,6 +10,13 @@ interface EditUserModalProps {
   onSuccess: () => void;
   currentUser?: any;
 }
+
+const AVAILABLE_APPS = [
+  { id: 'APP_EPSON_OS', label: 'Epson CSA - Controle de O.S. & SLA', description: 'Acesso às ordens de serviço, manômetros e relatórios Epson.' },
+  { id: 'APP_ESTOQUE', label: 'Controle de Estoque & Peças', description: 'Módulo de rastreamento de peças, tintas e insumos.' },
+  { id: 'APP_CHAMADOS', label: 'Chamados & Suporte TI', description: 'Central de tickets de suporte técnico e atendimento.' },
+  { id: 'APP_GESTAO', label: 'Gestão Corporativa & Auditoria', description: 'Gerenciamento de usuários, permissões e auditoria global.', adminOnly: true },
+];
 
 export default function EditUserModal({
   isOpen,
@@ -23,6 +30,7 @@ export default function EditUserModal({
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('TECNICO');
   const [active, setActive] = useState(true);
+  const [selectedApps, setSelectedApps] = useState<string[]>(['APP_EPSON_OS']);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,6 +43,24 @@ export default function EditUserModal({
       setRole(user.role || 'TECNICO');
       setActive(user.active !== undefined ? user.active : true);
       setError(null);
+
+      // Carregar aplicativos permitidos a partir do campo permissions
+      try {
+        const perms: string[] = JSON.parse(user.permissions || '[]');
+        const appPerms = perms.filter((p) => p.startsWith('APP_'));
+        if (appPerms.length > 0) {
+          setSelectedApps(appPerms);
+        } else {
+          // Usuário legado: concede acesso à Epson por padrão
+          const defaultApps = ['APP_EPSON_OS'];
+          if (user.role === 'ADMIN' || user.role === 'GERENTE') {
+            defaultApps.push('APP_GESTAO');
+          }
+          setSelectedApps(defaultApps);
+        }
+      } catch {
+        setSelectedApps(['APP_EPSON_OS']);
+      }
     }
   }, [user, isOpen]);
 
@@ -48,6 +74,12 @@ export default function EditUserModal({
   }, [isOpen, onClose]);
 
   if (!isOpen || !user) return null;
+
+  const toggleApp = (appId: string) => {
+    setSelectedApps((prev) =>
+      prev.includes(appId) ? prev.filter((id) => id !== appId) : [...prev, appId]
+    );
+  };
 
   const getDefaultPermissionsForRole = (r: string) => {
     switch (r) {
@@ -74,10 +106,18 @@ export default function EditUserModal({
       setError('O e-mail / login é obrigatório.');
       return;
     }
+    if (selectedApps.length === 0) {
+      setError('Selecione pelo menos um aplicativo para o usuário ter acesso.');
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
+
+      // Unir as permissões de papel com os aplicativos selecionados
+      const basePerms = getDefaultPermissionsForRole(role);
+      const combinedPermissions = Array.from(new Set([...basePerms, ...selectedApps]));
 
       const res = await fetch('/api/auth', {
         method: 'POST',
@@ -88,7 +128,7 @@ export default function EditUserModal({
           name: name.trim(),
           email: email.trim().toLowerCase(),
           role,
-          permissions: getDefaultPermissionsForRole(role),
+          permissions: combinedPermissions,
           password: password.trim() ? password.trim() : undefined,
           active,
           userAuthor: currentUser?.name || 'Administrador',
@@ -113,17 +153,17 @@ export default function EditUserModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 max-h-[90vh] flex flex-col">
         {/* Cabeçalho */}
-        <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between">
+        <div className="bg-[#07241A] text-white px-6 py-4 flex items-center justify-between border-b border-emerald-900/40">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-white/10 flex items-center justify-center font-bold text-sm">
-              <Edit3 className="w-4 h-4 text-cyan-400" />
+            <div className="w-8 h-8 rounded-lg bg-emerald-950 flex items-center justify-center font-bold text-sm border border-emerald-600/40">
+              <Edit3 className="w-4 h-4 text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Editar Usuário</h2>
-              <p className="text-xs text-cyan-200">
-                Acesso restrito a Administradores e Gerência ({user.name})
+              <h2 className="text-base font-bold">Editar Usuário & Permissões</h2>
+              <p className="text-xs text-emerald-300">
+                Acesso unificado aos aplicativos INFOGED ({user.name})
               </p>
             </div>
           </div>
@@ -135,69 +175,71 @@ export default function EditUserModal({
           </button>
         </div>
 
-        {/* Formulário */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {/* Formulário com Scroll Interno se necessário */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3 text-sm">
-              <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl flex items-start gap-3 text-xs">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">Atenção!</p>
+                <p className="font-bold">Atenção!</p>
                 <p>{error}</p>
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
               Nome Completo <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               placeholder="Ex: João da Silva"
+              required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
               E-mail / Login <span className="text-red-500">*</span>
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600 font-mono"
-              placeholder="Ex: joao@csa.com.br"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-mono"
+              placeholder="Ex: joao@infoged.com.br"
+              required
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Grupo / Cargo <span className="text-red-500">*</span>
               </label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-cyan-600"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-emerald-600"
               >
                 <option value="ADMIN">Administrador (Total)</option>
-                <option value="GERENTE">Gerente CSA</option>
-                <option value="TECNICO">Técnico Oficina</option>
-                <option value="ATENDENTE">Atendente Recepção</option>
+                <option value="GERENTE">Gerente</option>
+                <option value="TECNICO">Técnico</option>
+                <option value="ATENDENTE">Atendente</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Status da Conta
               </label>
               <select
                 value={active ? 'true' : 'false'}
                 onChange={(e) => setActive(e.target.value === 'true')}
-                className={`w-full px-3 py-2 text-sm font-semibold rounded-lg border focus:outline-none ${
+                className={`w-full px-3 py-2 text-sm font-bold rounded-xl border focus:outline-none ${
                   active
                     ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
                     : 'border-rose-300 bg-rose-50 text-rose-800'
@@ -209,8 +251,59 @@ export default function EditUserModal({
             </div>
           </div>
 
+          {/* ============================================================== */}
+          {/* SELEÇÃO DE APLICATIVOS / APIS AUTORIZADAS                       */}
+          {/* ============================================================== */}
+          <div className="pt-2 border-t border-slate-200">
+            <label className="block text-xs font-bold text-[#07241A] uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Aplicativos Liberados para este Usuário <span className="text-red-500">*</span></span>
+            </label>
+            <p className="text-[11px] text-slate-500 mb-2.5">
+              Marque quais aplicações aparecerão no Hub do colaborador:
+            </p>
+
+            <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              {AVAILABLE_APPS.map((app) => {
+                const isSelected = selectedApps.includes(app.id);
+                return (
+                  <div
+                    key={app.id}
+                    onClick={() => toggleApp(app.id)}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition select-none ${
+                      isSelected
+                        ? 'bg-emerald-50/80 border border-emerald-300 text-emerald-950'
+                        : 'hover:bg-slate-100 border border-transparent text-slate-600'
+                    }`}
+                  >
+                    <div className="mt-0.5 shrink-0">
+                      {isSelected ? (
+                        <CheckSquare className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="text-xs">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <span>{app.label}</span>
+                        {app.adminOnly && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-bold">
+                            Gestão
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                        {app.description}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div>
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
               Nova Senha (Opcional)
             </label>
             <input
@@ -218,29 +311,29 @@ export default function EditUserModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Deixe em branco para manter a senha atual"
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             />
             <p className="text-[11px] text-slate-400 mt-1">
-              Só preencha se desejar redefinir a senha do usuário.
+              Caso o usuário esteja bloqueado por tentativas falhas, salvar as alterações desbloqueará a conta automaticamente.
             </p>
           </div>
 
-          {/* Rodapé com Botões */}
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+              disabled={loading}
+              className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 transition"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2 text-sm font-bold text-white bg-[#002B49] hover:bg-[#001B30] rounded-lg shadow-sm flex items-center gap-2 transition disabled:opacity-50"
+              className="px-5 py-2 text-xs font-bold bg-[#07241A] hover:bg-[#0E3A2B] text-white rounded-xl shadow transition flex items-center gap-2 disabled:opacity-50"
             >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Salvar Alterações
+              {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />}
+              <span>Salvar Alterações</span>
             </button>
           </div>
         </form>

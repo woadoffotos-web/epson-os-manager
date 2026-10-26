@@ -39,8 +39,15 @@ export default function UsersAndAuditPage() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('123456');
   const [newRole, setNewRole] = useState('TECNICO');
+  const [newApps, setNewApps] = useState<string[]>(['APP_EPSON_OS']);
   const [creatingUser, setCreatingUser] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
+
+  const toggleNewApp = (appId: string) => {
+    setNewApps((prev) =>
+      prev.includes(appId) ? prev.filter((id) => id !== appId) : [...prev, appId]
+    );
+  };
 
   // Filtro de Logs
   const [logSearch, setLogSearch] = useState('');
@@ -89,6 +96,9 @@ export default function UsersAndAuditPage() {
       setCreatingUser(true);
       setUserError(null);
 
+      const basePerms = getDefaultPermissionsForRole(newRole);
+      const combinedPermissions = Array.from(new Set([...basePerms, ...newApps]));
+
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,7 +108,7 @@ export default function UsersAndAuditPage() {
           email: newEmail.trim().toLowerCase(),
           password: newPassword,
           role: newRole,
-          permissions: getDefaultPermissionsForRole(newRole),
+          permissions: combinedPermissions,
           userAuthor: currentUser?.name || 'Administrador',
           userRole: currentUser?.role || 'ADMIN',
         }),
@@ -254,61 +264,94 @@ export default function UsersAndAuditPage() {
                   </div>
                 )}
 
-                <form onSubmit={handleCreateUser} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Nome Completo</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Roberto Técnico"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
-                    />
+                <form onSubmit={handleCreateUser} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Nome Completo</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Roberto Técnico"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-emerald-600"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">E-mail / Login</label>
+                      <input
+                        type="email"
+                        placeholder="Ex: roberto@infoged.com.br"
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-emerald-600 font-mono"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Senha Inicial</label>
+                      <input
+                        type="password"
+                        placeholder="Senha"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-emerald-600"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Grupo / Cargo</label>
+                      <select
+                        value={newRole}
+                        onChange={(e) => setNewRole(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                      >
+                        <option value="ADMIN">Administrador (Total)</option>
+                        <option value="GERENTE">Gerente</option>
+                        <option value="TECNICO">Técnico</option>
+                        <option value="ATENDENTE">Atendente</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">E-mail / Login</label>
-                    <input
-                      type="email"
-                      placeholder="Ex: roberto@csa.com.br"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600 font-mono"
-                    />
-                  </div>
+                  {/* Seleção de Aplicativos Liberados para o Novo Usuário */}
+                  <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-700 uppercase">Liberar Aplicativos:</span>
+                      {[
+                        { id: 'APP_EPSON_OS', label: 'Epson CSA (O.S.)' },
+                        { id: 'APP_ESTOQUE', label: 'Estoque' },
+                        { id: 'APP_CHAMADOS', label: 'Chamados TI' },
+                        { id: 'APP_GESTAO', label: 'Gestão Central' },
+                      ].map((app) => {
+                        const isChecked = newApps.includes(app.id);
+                        return (
+                          <button
+                            key={app.id}
+                            type="button"
+                            onClick={() => toggleNewApp(app.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1.5 ${
+                              isChecked
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            <span>{isChecked ? '✓' : '+'}</span>
+                            <span>{app.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Senha Inicial</label>
-                    <input
-                      type="password"
-                      placeholder="Senha"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">Grupo / Cargo</label>
-                    <select
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs rounded border border-slate-300 bg-white"
-                    >
-                      <option value="ADMIN">Administrador (Total)</option>
-                      <option value="GERENTE">Gerente CSA</option>
-                      <option value="TECNICO">Técnico (Grupo Técnicos)</option>
-                      <option value="ATENDENTE">Atendente / Recepção</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-end">
                     <button
                       type="submit"
                       disabled={creatingUser || !newName.trim() || !newEmail.trim()}
-                      className="w-full px-4 py-2 bg-[#002B49] text-white text-xs font-bold rounded hover:bg-[#001B30] transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="px-5 py-2 bg-[#07241A] text-white text-xs font-bold rounded-lg hover:bg-[#0E3A2B] transition flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
-                      {creatingUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                      {creatingUser ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" /> : <UserPlus className="w-3.5 h-3.5" />}
                       Salvar Usuário
                     </button>
                   </div>
@@ -329,14 +372,14 @@ export default function UsersAndAuditPage() {
                         <th className="p-3">NOME</th>
                         <th className="p-3">E-MAIL / LOGIN</th>
                         <th className="p-3">GRUPO / CARGO</th>
-                        <th className="p-3">PERMISSÕES CONCEDIDAS</th>
+                        <th className="p-3">APLICATIVOS LIBERADOS</th>
                         <th className="p-3 text-center">STATUS</th>
                         <th className="p-3 text-center">AÇÕES</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {users.map((u) => {
-                        const permList = JSON.parse(u.permissions || '[]');
+                        const permList: string[] = JSON.parse(u.permissions || '[]');
                         return (
                           <tr key={u.id} className="hover:bg-slate-50 transition">
                             <td className="p-3 font-bold text-slate-800">{u.name}</td>
@@ -357,15 +400,33 @@ export default function UsersAndAuditPage() {
                               </span>
                             </td>
                             <td className="p-3 text-slate-600 text-[11px]">
-                              {permList.includes('ALL') ? (
-                                <span className="font-bold text-emerald-700">Acesso Total (Admin)</span>
+                              {permList.includes('ALL') || u.role === 'ADMIN' ? (
+                                <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-300 inline-block text-[10px]">
+                                  Acesso Total a Todos os Apps
+                                </span>
                               ) : (
-                                <div className="flex gap-1 flex-wrap">
-                                  {permList.map((p: string) => (
-                                    <span key={p} className="px-1.5 py-0.2 bg-slate-100 rounded text-[10px]">
-                                      {p}
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {permList.filter((p: string) => p.startsWith('APP_')).map((p: string) => {
+                                    const appLabels: Record<string, string> = {
+                                      APP_EPSON_OS: 'Epson CSA',
+                                      APP_ESTOQUE: 'Estoque',
+                                      APP_CHAMADOS: 'Chamados TI',
+                                      APP_GESTAO: 'Gestão Central',
+                                    };
+                                    return (
+                                      <span
+                                        key={p}
+                                        className="px-2 py-0.5 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded font-bold text-[10px]"
+                                      >
+                                        {appLabels[p] || p}
+                                      </span>
+                                    );
+                                  })}
+                                  {!permList.some((p: string) => p.startsWith('APP_')) && (
+                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-900 border border-blue-200 rounded font-bold text-[10px]">
+                                      Epson CSA
                                     </span>
-                                  ))}
+                                  )}
                                 </div>
                               )}
                             </td>

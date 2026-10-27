@@ -202,13 +202,8 @@ export default function WorkOrdersPage() {
     }
   };
 
-  // 5. Abrir Modal de Edição dos Dados de Cadastro (ADMIN e GERÊNCIA)
+  // 5. Abrir Modal de Edição Completa da O.S. (Campos acessíveis conforme o perfil de login)
   const handleOpenEditModal = async (order: any) => {
-    if (!canDelete) {
-      alert('Acesso negado: Somente usuários dos perfis ADMIN e GERÊNCIA podem editar os dados de cadastro da O.S.');
-      return;
-    }
-
     // Verificar e adquirir bloqueio de concorrência antes de abrir a edição
     try {
       const res = await fetch('/api/locks', {
@@ -219,7 +214,7 @@ export default function WorkOrdersPage() {
           entityType: 'WorkOrder',
           entityId: order.id,
           userId: currentUser?.id || 'anonymous',
-          userName: currentUser?.name || 'Administrador',
+          userName: currentUser?.name || 'Usuário',
           userEmail: currentUser?.email,
         }),
       });
@@ -515,8 +510,11 @@ export default function WorkOrdersPage() {
                 {/* Linha 1 do Cabeçalho Agrupado */}
                 <thead className="bg-[#002B49] text-white sticky top-0 z-20 select-none">
                   <tr className="border-b border-blue-900/60 text-[11px]">
-                    <th rowSpan={2} className="px-2.5 py-2 font-bold whitespace-nowrap sticky left-0 z-30 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_5px_rgba(0,0,0,0.25)]">
-                      ORDEM DE SERVIÇO
+                    <th rowSpan={2} className="px-2.5 py-2 font-bold whitespace-nowrap sticky left-0 z-30 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_5px_rgba(0,0,0,0.25)]" title="Clique no número de qualquer O.S. para abrir a janela completa de edição com todos os campos">
+                      <div className="flex items-center gap-1.5">
+                        <span>ORDEM DE SERVIÇO</span>
+                        <span className="text-[9px] font-normal text-cyan-300 opacity-80">(clique p/ abrir)</span>
+                      </div>
                     </th>
                     <th rowSpan={2} className="px-2 py-2 font-bold whitespace-nowrap">MODELO</th>
                     <th rowSpan={2} className="px-2 py-2 font-bold whitespace-nowrap">Nº SÉRIE</th>
@@ -584,7 +582,7 @@ export default function WorkOrdersPage() {
                               : 'hover:bg-slate-50'
                           }`}
                         >
-                          {/* 1. OS Number (Fixo/Sticky com destaque de alerta SLA) */}
+                          {/* 1. OS Number (Fixo/Sticky com clique para abrir janela completa de edição e SLA) */}
                           <td
                             className={`px-2.5 py-1.5 whitespace-nowrap transition sticky left-0 z-10 border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.06)] ${
                               alerts.isOsNumberAlert
@@ -594,24 +592,35 @@ export default function WorkOrdersPage() {
                                 : 'bg-white group-hover:bg-slate-50 font-bold text-[#002B49]'
                             }`}
                           >
-                            {o.osNumber}
-                            {alerts.isOsNumberAlert && (
-                              <span
-                                className="ml-1.5 px-1 py-0.2 rounded text-[9px] bg-rose-200 text-rose-900 font-extrabold uppercase"
-                                title={
-                                  alerts.fullRowReason === '27D'
-                                    ? 'Atenção Crítica: Mais de 27 dias da entrada sem Saída do Sistema!'
-                                    : alerts.fullRowReason === '8D'
-                                    ? 'Estouro Crítico: Mais de 8 dias da entrada sem conclusão do conserto!'
-                                    : 'Prazo estourado conforme regras de SLA'
-                                }
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(o)}
+                                className="group/os inline-flex items-center gap-1 font-mono font-bold text-[#002B49] hover:text-cyan-700 hover:underline cursor-pointer transition text-left"
+                                title="Clique para abrir a janela com todos os campos desta O.S."
                               >
-                                {alerts.fullRowReason ? `SLA ${alerts.fullRowReason}` : 'SLA'}
-                              </span>
-                            )}
-                            {saveSuccessId === o.id && (
-                              <span className="ml-1 text-[10px] text-emerald-600 font-semibold animate-pulse">✓ Salvo</span>
-                            )}
+                                <span>{o.osNumber}</span>
+                                <span className="text-[10px] text-cyan-600 opacity-60 group-hover/os:opacity-100 transition-opacity">↗</span>
+                              </button>
+
+                              {alerts.isOsNumberAlert && (
+                                <span
+                                  className="px-1 py-0.2 rounded text-[9px] bg-rose-200 text-rose-900 font-extrabold uppercase shrink-0"
+                                  title={
+                                    alerts.fullRowReason === '27D'
+                                      ? 'Atenção Crítica: Mais de 27 dias da entrada sem Saída do Sistema!'
+                                      : alerts.fullRowReason === '8D'
+                                      ? 'Estouro Crítico: Mais de 8 dias da entrada sem conclusão do conserto!'
+                                      : 'Prazo estourado conforme regras de SLA'
+                                  }
+                                >
+                                  {alerts.fullRowReason ? `SLA ${alerts.fullRowReason}` : 'SLA'}
+                                </span>
+                              )}
+                              {saveSuccessId === o.id && (
+                                <span className="ml-0.5 text-[10px] text-emerald-600 font-semibold animate-pulse shrink-0">✓ Salvo</span>
+                              )}
+                            </div>
                           </td>
 
                           {/* 2. Modelo (Fixo) */}
@@ -1081,12 +1090,22 @@ export default function WorkOrdersPage() {
                         }`}
                       >
                         <td className={`p-2.5 font-bold ${searchAlerts.isOsNumberAlert ? 'text-rose-900 bg-rose-100/80 rounded' : 'text-[#002B49]'}`}>
-                          {o.osNumber}
-                          {searchAlerts.isOsNumberAlert && (
-                            <span className="ml-1.5 px-1 py-0.2 rounded text-[9px] bg-rose-200 text-rose-900 font-extrabold uppercase">
-                              {searchAlerts.fullRowReason ? `SLA ${searchAlerts.fullRowReason}` : 'SLA'}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(o)}
+                              className="group/os inline-flex items-center gap-1 font-mono font-bold text-[#002B49] hover:text-cyan-700 hover:underline cursor-pointer transition text-left"
+                              title="Clique para abrir a janela com todos os campos desta O.S."
+                            >
+                              <span>{o.osNumber}</span>
+                              <span className="text-[10px] text-cyan-600 opacity-60 group-hover/os:opacity-100 transition-opacity">↗</span>
+                            </button>
+                            {searchAlerts.isOsNumberAlert && (
+                              <span className="px-1 py-0.2 rounded text-[9px] bg-rose-200 text-rose-900 font-extrabold uppercase shrink-0">
+                                {searchAlerts.fullRowReason ? `SLA ${searchAlerts.fullRowReason}` : 'SLA'}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       <td className="p-2.5 font-medium">{o.model?.name}</td>
                       <td className="p-2.5 font-mono">{o.serialNumber}</td>

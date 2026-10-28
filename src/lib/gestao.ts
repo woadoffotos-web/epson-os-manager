@@ -268,7 +268,21 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
   }>();
 
   try {
-    const p1 = await fetchGestaoApi('/compras?limite=100&pagina=1');
+    const [p1, allForns] = await Promise.all([
+      fetchGestaoApi('/compras?limite=100&pagina=1'),
+      getFornecedores(),
+    ]);
+
+    const fornById = new Map<string, { nome: string; razaoSocial?: string }>();
+    const fornByName = new Map<string, { nome: string; razaoSocial?: string }>();
+    if (Array.isArray(allForns)) {
+      for (const f of allForns) {
+        if (f.id) fornById.set(String(f.id), f);
+        if (f.nome) fornByName.set(f.nome.toLowerCase().trim(), f);
+        if (f.razaoSocial) fornByName.set(f.razaoSocial.toLowerCase().trim(), f);
+      }
+    }
+
     if (p1.ok && p1.data?.data) {
       let allCompras: any[] = Array.isArray(p1.data.data) ? p1.data.data : [];
       const totalPaginas = p1.data.meta?.total_paginas || 1;
@@ -289,7 +303,24 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
       for (const item of allCompras) {
         const compra = item.Compra || item;
         const dataEmissao = compra.data_emissao || '';
-        const nomeFornecedor = (compra.nome_fornecedor || '').trim();
+        const rawNomeFornecedor = (compra.nome_fornecedor || '').trim();
+        const fornId = String(compra.fornecedor_id || '');
+
+        const aliases: string[] = [];
+        if (rawNomeFornecedor) aliases.push(rawNomeFornecedor);
+
+        const matchedForn =
+          (fornId && fornById.get(fornId)) ||
+          (rawNomeFornecedor && fornByName.get(rawNomeFornecedor.toLowerCase()));
+
+        if (matchedForn) {
+          if (matchedForn.nome && !aliases.includes(matchedForn.nome)) {
+            aliases.push(matchedForn.nome);
+          }
+          if (matchedForn.razaoSocial && !aliases.includes(matchedForn.razaoSocial)) {
+            aliases.push(matchedForn.razaoSocial);
+          }
+        }
 
         if (Array.isArray(compra.produtos)) {
           for (const pItem of compra.produtos) {
@@ -306,7 +337,7 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
                 dataUltimaCompra: dataEmissao,
                 quantidadeUltimaCompra: qtd,
                 valorUltimaCompra: valorCusto,
-                fornecedores: nomeFornecedor ? [nomeFornecedor] : [],
+                fornecedores: [...aliases],
               });
             } else {
               if (dataEmissao > existing.dataUltimaCompra) {
@@ -314,8 +345,10 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
                 existing.quantidadeUltimaCompra = qtd;
                 existing.valorUltimaCompra = valorCusto;
               }
-              if (nomeFornecedor && !existing.fornecedores.includes(nomeFornecedor)) {
-                existing.fornecedores.push(nomeFornecedor);
+              for (const alias of aliases) {
+                if (alias && !existing.fornecedores.includes(alias)) {
+                  existing.fornecedores.push(alias);
+                }
               }
             }
           }
@@ -380,9 +413,11 @@ export async function getProductDetails(produtoId: string) {
       if (Array.isArray(resForn.data?.data)) {
         for (const fItem of resForn.data.data) {
           const f = fItem.Fornecedor || fItem.fornecedor || fItem;
-          const nomeForn = f.nome || f.razao_social;
-          if (nomeForn && !suppliers.includes(nomeForn)) {
-            suppliers.push(nomeForn);
+          if (f.nome && !suppliers.includes(f.nome)) {
+            suppliers.push(f.nome);
+          }
+          if (f.razao_social && !suppliers.includes(f.razao_social)) {
+            suppliers.push(f.razao_social);
           }
         }
       }

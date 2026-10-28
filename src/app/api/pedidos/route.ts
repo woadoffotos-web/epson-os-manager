@@ -90,11 +90,35 @@ export async function GET(request: Request) {
         ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      // 1. Buscar vendas e compras em paralelo
-      const [vendas, purchasesMap] = await Promise.all([
+      // 1. Buscar vendas, compras e fornecedores em paralelo
+      const [vendas, purchasesMap, allForns] = await Promise.all([
         getVendasPeriodo(dataInicio, dataFim),
         getPurchasesProductIndex(),
+        getFornecedores(),
       ]);
+
+      // Expansão inteligente de fornecedores (mapeia nome fantasia, razão social e variações)
+      let expandedSupplierTerms: string[] = [...filtroFornecedores];
+      if (filtroFornecedores.length > 0 && Array.isArray(allForns)) {
+        const setTerms = new Set<string>(filtroFornecedores.map((f) => f.toLowerCase()));
+        for (const ff of filtroFornecedores) {
+          const ffLower = ff.toLowerCase();
+          for (const s of allForns) {
+            const sNome = (s.nome || '').toLowerCase();
+            const sRazao = (s.razaoSocial || '').toLowerCase();
+            if (
+              (sNome && sNome.includes(ffLower)) ||
+              (sRazao && sRazao.includes(ffLower)) ||
+              (sNome && ffLower.includes(sNome)) ||
+              (sRazao && ffLower.includes(sRazao))
+            ) {
+              if (s.nome) setTerms.add(s.nome.toLowerCase());
+              if (s.razaoSocial) setTerms.add(s.razaoSocial.toLowerCase());
+            }
+          }
+        }
+        expandedSupplierTerms = Array.from(setTerms);
+      }
 
       // 2. Extrair todos os IDs únicos de produtos vendidos para buscar os dados cadastrais reais
       const uniqueProductIds = new Set<string>();
@@ -179,11 +203,13 @@ export async function GET(request: Request) {
         });
       }
 
-      // Filtro por múltiplos fornecedores selecionados
-      if (filtroFornecedores.length > 0) {
+      // Filtro por múltiplos fornecedores selecionados (com expansão de nomes e razões sociais)
+      if (expandedSupplierTerms.length > 0) {
         lista = lista.filter((item) =>
           item.fornecedores.some((f) =>
-            filtroFornecedores.some((ff) => f.toLowerCase().includes(ff))
+            expandedSupplierTerms.some(
+              (ff) => f.toLowerCase().includes(ff) || ff.includes(f.toLowerCase())
+            )
           )
         );
       }
@@ -224,16 +250,40 @@ export async function GET(request: Request) {
         ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      // 1. Buscar limites locais de estoque, histórico de compras e histórico de vendas de ambos os meses em paralelo
-      const [limits, purchasesMap, monthlySales] = await Promise.all([
+      // 1. Buscar limites locais de estoque, histórico de compras, vendas e fornecedores em paralelo
+      const [limits, purchasesMap, monthlySales, allForns] = await Promise.all([
         prisma.productStockLimit.findMany(),
         getPurchasesProductIndex(),
         getMonthlySalesIndex(),
+        getFornecedores(),
       ]);
 
       const limitsMap = new Map<string, any>();
       for (const l of limits) {
         limitsMap.set(l.produtoId, l);
+      }
+
+      // Expansão inteligente de fornecedores (mapeia nome fantasia, razão social e variações)
+      let expandedSupplierTerms: string[] = [...filtroFornecedores];
+      if (filtroFornecedores.length > 0 && Array.isArray(allForns)) {
+        const setTerms = new Set<string>(filtroFornecedores.map((f) => f.toLowerCase()));
+        for (const ff of filtroFornecedores) {
+          const ffLower = ff.toLowerCase();
+          for (const s of allForns) {
+            const sNome = (s.nome || '').toLowerCase();
+            const sRazao = (s.razaoSocial || '').toLowerCase();
+            if (
+              (sNome && sNome.includes(ffLower)) ||
+              (sRazao && sRazao.includes(ffLower)) ||
+              (sNome && ffLower.includes(sNome)) ||
+              (sRazao && ffLower.includes(sRazao))
+            ) {
+              if (s.nome) setTerms.add(s.nome.toLowerCase());
+              if (s.razaoSocial) setTerms.add(s.razaoSocial.toLowerCase());
+            }
+          }
+        }
+        expandedSupplierTerms = Array.from(setTerms);
       }
 
       // 2. Construir condições dinâmicas de busca no banco Neon (ProductCatalogCache)
@@ -275,12 +325,14 @@ export async function GET(request: Request) {
       }
 
       // Filtro 5: Múltiplos Fornecedores selecionados
-      if (filtroFornecedores.length > 0) {
+      if (expandedSupplierTerms.length > 0) {
         // Encontra todos os IDs de produtos no histórico de compras associados a esses fornecedores
         const productIdsFromPurchases: string[] = [];
         for (const [pId, pInfo] of purchasesMap.entries()) {
           const hasMatch = pInfo.fornecedores.some((f) =>
-            filtroFornecedores.some((ff) => f.toLowerCase().includes(ff))
+            expandedSupplierTerms.some(
+              (ff) => f.toLowerCase().includes(ff) || ff.includes(f.toLowerCase())
+            )
           );
           if (hasMatch) {
             productIdsFromPurchases.push(pId);
@@ -289,7 +341,7 @@ export async function GET(request: Request) {
 
         andConditions.push({
           OR: [
-            ...filtroFornecedores.map((ff) => ({
+            ...expandedSupplierTerms.map((ff) => ({
               fornecedores: { contains: ff, mode: 'insensitive' },
             })),
             ...(productIdsFromPurchases.length > 0

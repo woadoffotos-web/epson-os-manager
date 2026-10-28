@@ -1779,7 +1779,9 @@ export default function PedidosPage() {
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
             <div className="p-3 bg-amber-50/70 border-b border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-amber-950">Montagem de Cotação de Compras</span>
+                <span className="font-bold text-amber-950">
+                  Montagem de Cotação de Compras {hasSearchedCotacao && `(${cotacaoProdutosList.length} produtos encontrados)`}
+                </span>
                 <span className="text-[11px] text-amber-800">
                   Preencha a "Quantidade a ser pedida" nos itens desejados
                 </span>

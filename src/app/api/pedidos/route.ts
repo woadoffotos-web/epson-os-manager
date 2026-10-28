@@ -199,7 +199,7 @@ export async function GET(request: Request) {
     }
 
     // ================================================================
-    // AÇÃO 3: MONTAR COTAÇÃO (Menu 2)
+    // AÇÃO 3: MONTAR COTAÇÃO (Menu 2 - Catálogo Completo com Filtros Globais)
     // ================================================================
     if (action === 'montar_cotacao') {
       const filtroCodigo = (searchParams.get('codigo') || '').trim().toLowerCase();
@@ -223,21 +223,7 @@ export async function GET(request: Request) {
         ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      // Se o usuário selecionou produtos específicos no seletor de produtos, busca esses produtos diretamente
-      let rawProducts: any[] = [];
-      if (filtroProdutoIds.length > 0) {
-        const batchMap = await getProductDetailsBatch(filtroProdutoIds);
-        rawProducts = Array.from(batchMap.values());
-      } else {
-        // Se houver busca de texto ou grupo específico
-        const prodResult = await getProdutosGestao(100, 1, {
-          busca: filtroBusca || filtroCodigo || undefined,
-          grupoId: filtroGrupos.length === 1 ? filtroGrupos[0] : undefined,
-        });
-        rawProducts = prodResult.produtos;
-      }
-
-      // Buscar limites locais salvos e histórico de compras
+      // 1. Buscar limites locais de estoque e histórico de compras completo em paralelo
       const [limits, purchasesMap] = await Promise.all([
         prisma.productStockLimit.findMany(),
         getPurchasesProductIndex(),
@@ -248,29 +234,101 @@ export async function GET(request: Request) {
         limitsMap.set(l.produtoId, l);
       }
 
-      // Buscar detalhes e fornecedores reais vinculados ao cadastro do produto
-      const catalogMap = await getProductDetailsBatch(rawProducts.map((p: any) => String(p.id)));
+      // 2. Construir condições dinâmicas de busca no banco Neon (ProductCatalogCache)
+      const andConditions: any[] = [];
 
-      let lista = rawProducts.map((p: any) => {
-        const pId = String(p.id);
+      // Filtro 1: Produtos explicitamente selecionados no autocomplete
+      if (filtroProdutoIds.length > 0) {
+        andConditions.push({ produtoId: { in: filtroProdutoIds } });
+      }
+
+      // Filtro 2: Código interno do produto
+      if (filtroCodigo) {
+        andConditions.push({
+          OR: [
+            { codigoInterno: { contains: filtroCodigo, mode: 'insensitive' } },
+            { nome: { contains: filtroCodigo, mode: 'insensitive' } },
+          ],
+        });
+      }
+
+      // Filtro 3: Busca textual / Nome do produto
+      if (filtroBusca) {
+        andConditions.push({
+          OR: [
+            { nome: { contains: filtroBusca, mode: 'insensitive' } },
+            { codigoInterno: { contains: filtroBusca, mode: 'insensitive' } },
+          ],
+        });
+      }
+
+      // Filtro 4: Múltiplos Grupos selecionados
+      if (filtroGrupos.length > 0) {
+        andConditions.push({
+          OR: filtroGrupos.flatMap((fg) => [
+            { grupoId: { equals: fg } },
+            { nomeGrupo: { contains: fg, mode: 'insensitive' } },
+          ]),
+        });
+      }
+
+      // Filtro 5: Múltiplos Fornecedores selecionados
+      if (filtroFornecedores.length > 0) {
+        // Encontra todos os IDs de produtos no histórico de compras associados a esses fornecedores
+        const productIdsFromPurchases: string[] = [];
+        for (const [pId, pInfo] of purchasesMap.entries()) {
+          const hasMatch = pInfo.fornecedores.some((f) =>
+            filtroFornecedores.some((ff) => f.toLowerCase().includes(ff))
+          );
+          if (hasMatch) {
+            productIdsFromPurchases.push(pId);
+          }
+        }
+
+        andConditions.push({
+          OR: [
+            ...filtroFornecedores.map((ff) => ({
+              fornecedores: { contains: ff, mode: 'insensitive' },
+            })),
+            ...(productIdsFromPurchases.length > 0
+              ? [{ produtoId: { in: productIdsFromPurchases } }]
+              : []),
+          ],
+        });
+      }
+
+      // 3. Executar query no catálogo completo
+      const dbProducts = await prisma.productCatalogCache.findMany({
+        where: andConditions.length > 0 ? { AND: andConditions } : undefined,
+        orderBy: { nome: 'asc' },
+      });
+
+      // 4. Mapear e associar estoque, limites e valores da última compra
+      const lista = dbProducts.map((p) => {
+        const pId = p.produtoId;
         const limit = limitsMap.get(pId);
         const purchase = purchasesMap.get(pId);
-        const prodDetails = catalogMap.get(pId);
 
-        const valorUltima = purchase?.valorUltimaCompra || parseFloat(p.valor_custo) || 0;
+        let registeredSuppliers: string[] = [];
+        try {
+          registeredSuppliers = JSON.parse(p.fornecedores || '[]');
+        } catch {
+          registeredSuppliers = [];
+        }
 
-        const registeredSuppliers: string[] = Array.isArray(prodDetails?.fornecedores) ? prodDetails.fornecedores : [];
         const purchaseSuppliers: string[] = Array.isArray(purchase?.fornecedores) ? purchase.fornecedores : [];
         const combinedSuppliers = Array.from(new Set([...registeredSuppliers, ...purchaseSuppliers]));
 
+        const valorUltima = purchase?.valorUltimaCompra || p.valorCusto || 0;
+
         return {
           produtoId: pId,
-          codigo: prodDetails?.codigo_interno || p.codigo_interno || p.codigo_barra || pId,
-          nome: prodDetails?.nome || p.nome,
-          grupoId: String(prodDetails?.grupo_id || p.grupo_id || ''),
-          nomeGrupo: prodDetails?.nome_grupo || p.nome_grupo || 'Diversos',
+          codigo: p.codigoInterno || pId,
+          nome: p.nome || 'Produto sem nome',
+          grupoId: p.grupoId || '',
+          nomeGrupo: p.nomeGrupo || 'Diversos',
           fornecedores: combinedSuppliers,
-          estoqueAtual: parseFloat(p.estoque) || 0,
+          estoqueAtual: p.estoque,
           estoqueMinimo: limit?.estoqueMinimo ?? 0,
           estoqueMaximo: limit?.estoqueMaximo ?? 0,
           dataUltimaCompra: purchase?.dataUltimaCompra || null,
@@ -280,29 +338,6 @@ export async function GET(request: Request) {
           quantidadePedida: '',
         };
       });
-
-      // Aplicar filtros de código
-      if (filtroCodigo) {
-        lista = lista.filter((item: any) => item.codigo.toLowerCase().includes(filtroCodigo));
-      }
-
-      // Aplicar filtro de múltiplos grupos
-      if (filtroGrupos.length > 0) {
-        lista = lista.filter((item: any) => {
-          const gId = item.grupoId.toLowerCase();
-          const gName = item.nomeGrupo.toLowerCase();
-          return filtroGrupos.some((fg: string) => fg === gId || gName.includes(fg));
-        });
-      }
-
-      // Aplicar filtro de múltiplos fornecedores
-      if (filtroFornecedores.length > 0) {
-        lista = lista.filter((item: any) =>
-          item.fornecedores.some((f: string) =>
-            filtroFornecedores.some((ff: string) => f.toLowerCase().includes(ff))
-          )
-        );
-      }
 
       return NextResponse.json({
         totalProdutos: lista.length,

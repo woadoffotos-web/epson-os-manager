@@ -163,7 +163,7 @@ export async function getVendasPeriodo(dataInicio: string, dataFim: string) {
   return vendas;
 }
 
-// 4. Cache em memória para histórico de compras (TTL de 3 minutos)
+// 4. Cache em memória para histórico de compras completo (TTL de 15 minutos)
 let purchasesCache: {
   timestamp: number;
   data: Map<string, {
@@ -176,7 +176,7 @@ let purchasesCache: {
 
 export async function getPurchasesProductIndex(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && purchasesCache && now - purchasesCache.timestamp < 3 * 60 * 1000) {
+  if (!forceRefresh && purchasesCache && now - purchasesCache.timestamp < 15 * 60 * 1000) {
     return purchasesCache.data;
   }
 
@@ -188,12 +188,28 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
   }>();
 
   try {
-    const res = await fetchGestaoApi('/compras?limite=80');
-    if (res.ok && res.data?.data) {
-      for (const item of res.data.data) {
+    const p1 = await fetchGestaoApi('/compras?limite=100&pagina=1');
+    if (p1.ok && p1.data?.data) {
+      let allCompras: any[] = Array.isArray(p1.data.data) ? p1.data.data : [];
+      const totalPaginas = p1.data.meta?.total_paginas || 1;
+
+      if (totalPaginas > 1) {
+        const batchPromises = [];
+        for (let p = 2; p <= totalPaginas; p++) {
+          batchPromises.push(fetchGestaoApi(`/compras?limite=100&pagina=${p}`));
+        }
+        const results = await Promise.all(batchPromises);
+        for (const res of results) {
+          if (res.ok && Array.isArray(res.data?.data)) {
+            allCompras = allCompras.concat(res.data.data);
+          }
+        }
+      }
+
+      for (const item of allCompras) {
         const compra = item.Compra || item;
         const dataEmissao = compra.data_emissao || '';
-        const nomeFornecedor = compra.nome_fornecedor || '';
+        const nomeFornecedor = (compra.nome_fornecedor || '').trim();
 
         if (Array.isArray(compra.produtos)) {
           for (const pItem of compra.produtos) {
@@ -227,7 +243,7 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
       }
     }
   } catch (err) {
-    console.error('Erro ao indexar compras:', err);
+    console.error('Erro ao indexar compras completas:', err);
   }
 
   purchasesCache = {
@@ -385,6 +401,46 @@ export async function searchProdutosGestao(termo: string, limite = 30) {
   if (!termo || termo.trim().length < 2) return [];
 
   const cleanTerm = termo.trim();
+
+  // 1. Busca ultra-rápida no PostgreSQL Neon local (~5ms)
+  try {
+    const dbMatches = await prisma.productCatalogCache.findMany({
+      where: {
+        OR: [
+          { nome: { contains: cleanTerm, mode: 'insensitive' } },
+          { codigoInterno: { contains: cleanTerm, mode: 'insensitive' } },
+        ],
+      },
+      take: limite,
+      orderBy: { nome: 'asc' },
+    });
+
+    if (dbMatches.length > 0) {
+      return dbMatches.map((p) => {
+        let fornecedores: string[] = [];
+        try {
+          fornecedores = JSON.parse(p.fornecedores || '[]');
+        } catch {
+          fornecedores = [];
+        }
+        return {
+          id: p.produtoId,
+          codigo_interno: p.codigoInterno || p.produtoId,
+          codigo_barra: '',
+          nome: p.nome || '',
+          grupo_id: p.grupoId || '',
+          nome_grupo: p.nomeGrupo || 'Diversos',
+          estoque: p.estoque,
+          valor_custo: p.valorCusto,
+          fornecedores,
+        };
+      });
+    }
+  } catch (e) {
+    console.error('Erro na busca local de produtos:', e);
+  }
+
+  // 2. Fallback para API do Gestão Click
   const res = await fetchGestaoApi(`/produtos?busca=${encodeURIComponent(cleanTerm)}&limite=${limite}`);
   
   if (res.ok && res.data?.data) {

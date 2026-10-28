@@ -89,6 +89,7 @@ export default function PedidosPage() {
 
   const [cotacaoProdutosList, setCotacaoProdutosList] = useState<any[]>([]);
   const [loadingCotacao, setLoadingCotacao] = useState(false);
+  const [hasSearchedCotacao, setHasSearchedCotacao] = useState(false);
   const [cotacaoNomeFornecedor, setCotacaoNomeFornecedor] = useState('');
   const [cotacaoObservacoes, setCotacaoObservacoes] = useState('');
 
@@ -224,6 +225,7 @@ export default function PedidosPage() {
   const fetchProdutosCotacao = async () => {
     try {
       setLoadingCotacao(true);
+      setHasSearchedCotacao(true);
       const params = new URLSearchParams();
       params.set('action', 'montar_cotacao');
       if (cotacaoCodigo) params.set('codigo', cotacaoCodigo);
@@ -251,12 +253,6 @@ export default function PedidosPage() {
       setLoadingCotacao(false);
     }
   };
-
-  useEffect(() => {
-    if (activeTab === 'montar_cotacao' && cotacaoProdutosList.length === 0) {
-      fetchProdutosCotacao();
-    }
-  }, [activeTab]);
 
   // 6. Carregar Cotações Feitas
   const fetchCotacoesFeitas = async () => {
@@ -669,9 +665,9 @@ export default function PedidosPage() {
 
                 {/* Dropdown de sugestões dinâmicas de produtos */}
                 {isProdutosVendasOpen && sugestoesProdutosVendas.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-60 overflow-y-auto p-1.5 space-y-1">
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 max-h-72 overflow-y-auto p-1.5 space-y-1 min-w-[320px] md:min-w-[420px]">
                     <div className="flex items-center justify-between px-2 py-1 text-[10px] text-slate-400 font-bold border-b border-slate-100">
-                      <span>Clique para marcar/desmarcar produtos:</span>
+                      <span>Clique para marcar (passe o mouse para ver o nome completo):</span>
                       <button
                         type="button"
                         onClick={() => setIsProdutosVendasOpen(false)}
@@ -685,6 +681,7 @@ export default function PedidosPage() {
                       return (
                         <div
                           key={p.id}
+                          title={p.nome}
                           onClick={() => {
                             if (isSelected) {
                               setSelectedProdutosVendas((prev) => prev.filter((sp) => sp.id !== p.id));
@@ -692,21 +689,23 @@ export default function PedidosPage() {
                               setSelectedProdutosVendas((prev) => [...prev, { id: p.id, codigo: p.codigo_interno, nome: p.nome }]);
                             }
                           }}
-                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs ${
-                            isSelected ? 'bg-cyan-50 border border-cyan-200 text-cyan-950 font-semibold' : 'hover:bg-slate-100 text-slate-800'
+                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs group ${
+                            isSelected ? 'bg-cyan-50 border border-cyan-200 text-cyan-950 font-semibold' : 'hover:bg-slate-100/90 text-slate-800'
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={isSelected}
                             readOnly
-                            className="w-3.5 h-3.5 rounded text-cyan-600 mt-0.5"
+                            className="w-3.5 h-3.5 rounded text-cyan-600 mt-0.5 shrink-0"
                           />
                           <div className="flex-1 min-w-0">
                             <span className="font-mono text-[10px] text-cyan-800 font-bold block">
                               Cód: {p.codigo_interno} &bull; {p.nome_grupo}
                             </span>
-                            <span className="truncate block">{p.nome}</span>
+                            <span className="block text-xs leading-snug break-words text-slate-900 mt-0.5" title={p.nome}>
+                              {p.nome}
+                            </span>
                           </div>
                         </div>
                       );
@@ -715,53 +714,71 @@ export default function PedidosPage() {
                 )}
               </div>
 
-              {/* 3. Filtro: Fornecedor (Seleção Múltipla dos Fornecedores do Gestão Click) */}
+              {/* 3. Filtro: Fornecedor (Multi-seleção digitável dos Fornecedores do Gestão Click) */}
               <div className="relative">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
-                  Fornecedor ({selectedFornecedoresVendas.length} selecionados)
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase flex items-center justify-between">
+                  <span>Fornecedor ({selectedFornecedoresVendas.length} selecionados)</span>
+                  {selectedFornecedoresVendas.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresVendas([])}
+                      className="text-[10px] text-cyan-700 hover:underline font-normal"
+                    >
+                      Limpar
+                    </button>
+                  )}
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsFornecedoresVendasOpen(!isFornecedoresVendasOpen)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
-                >
-                  <span className="truncate">
-                    {selectedFornecedoresVendas.length === 0
-                      ? 'Todos os fornecedores'
-                      : `${selectedFornecedoresVendas.length} fornecedores`}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
-                </button>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={
+                      selectedFornecedoresVendas.length === 0
+                        ? 'Digite para buscar fornecedor...'
+                        : `${selectedFornecedoresVendas.length} selecionado(s) - digite para mais...`
+                    }
+                    value={buscaFornecedorVendas}
+                    onChange={(e) => {
+                      setBuscaFornecedorVendas(e.target.value);
+                      setIsFornecedoresVendasOpen(true);
+                    }}
+                    onFocus={() => setIsFornecedoresVendasOpen(true)}
+                    className="w-full px-3 py-1.5 pr-8 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-cyan-600 font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsFornecedoresVendasOpen(!isFornecedoresVendasOpen)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 {/* Dropdown com Busca e Checkboxes de Fornecedores */}
                 {isFornecedoresVendasOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[280px]">
-                    <input
-                      type="text"
-                      placeholder="Pesquisar fornecedor..."
-                      value={buscaFornecedorVendas}
-                      onChange={(e) => setBuscaFornecedorVendas(e.target.value)}
-                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
-                    />
-
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[300px]">
                     <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFornecedoresVendas([])}
-                        className="hover:underline"
-                      >
-                        Desmarcar todos
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsFornecedoresVendasOpen(false)}
-                        className="hover:underline"
-                      >
-                        Fechar
-                      </button>
+                      <span>{fornecedores.filter((f) => f.nome.toLowerCase().includes(buscaFornecedorVendas.toLowerCase())).length} fornecedores</span>
+                      <div className="flex items-center gap-2">
+                        {selectedFornecedoresVendas.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFornecedoresVendas([])}
+                            className="hover:underline text-rose-600"
+                          >
+                            Desmarcar todos
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsFornecedoresVendasOpen(false)}
+                          className="hover:underline text-slate-500 font-bold"
+                        >
+                          ✕ Fechar
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="max-h-48 overflow-y-auto space-y-1">
+                    <div className="max-h-56 overflow-y-auto space-y-1">
                       {fornecedores
                         .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorVendas.toLowerCase()))
                         .map((f) => {
@@ -769,17 +786,18 @@ export default function PedidosPage() {
                           return (
                             <label
                               key={f.id}
-                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
-                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              title={f.nome}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200' : 'hover:bg-slate-50 text-slate-700'
                               }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={() => setSelectedFornecedoresVendas(toggleArrayItem(selectedFornecedoresVendas, f.nome))}
-                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                                className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0"
                               />
-                              <span className="truncate">{f.nome}</span>
+                              <span className="break-words leading-tight flex-1">{f.nome}</span>
                             </label>
                           );
                         })}
@@ -1156,9 +1174,9 @@ export default function PedidosPage() {
                 </div>
 
                 {isProdutosCotacaoOpen && sugestoesProdutosCotacao.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-60 overflow-y-auto p-1.5 space-y-1">
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 max-h-72 overflow-y-auto p-1.5 space-y-1 min-w-[320px] md:min-w-[420px]">
                     <div className="flex items-center justify-between px-2 py-1 text-[10px] text-slate-400 font-bold border-b border-slate-100">
-                      <span>Clique para marcar/desmarcar produtos:</span>
+                      <span>Clique para marcar (passe o mouse para ver o nome completo):</span>
                       <button
                         type="button"
                         onClick={() => setIsProdutosCotacaoOpen(false)}
@@ -1172,6 +1190,7 @@ export default function PedidosPage() {
                       return (
                         <div
                           key={p.id}
+                          title={p.nome}
                           onClick={() => {
                             if (isSelected) {
                               setSelectedProdutosCotacao((prev) => prev.filter((sp) => sp.id !== p.id));
@@ -1179,21 +1198,23 @@ export default function PedidosPage() {
                               setSelectedProdutosCotacao((prev) => [...prev, { id: p.id, codigo: p.codigo_interno, nome: p.nome }]);
                             }
                           }}
-                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs ${
-                            isSelected ? 'bg-amber-50 border border-amber-200 text-amber-950 font-semibold' : 'hover:bg-slate-100 text-slate-800'
+                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs group ${
+                            isSelected ? 'bg-amber-50 border border-amber-200 text-amber-950 font-semibold' : 'hover:bg-slate-100/90 text-slate-800'
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={isSelected}
                             readOnly
-                            className="w-3.5 h-3.5 rounded text-amber-600 mt-0.5"
+                            className="w-3.5 h-3.5 rounded text-amber-600 mt-0.5 shrink-0"
                           />
                           <div className="flex-1 min-w-0">
                             <span className="font-mono text-[10px] text-amber-800 font-bold block">
                               Cód: {p.codigo_interno} &bull; {p.nome_grupo}
                             </span>
-                            <span className="truncate block">{p.nome}</span>
+                            <span className="block text-xs leading-snug break-words text-slate-900 mt-0.5" title={p.nome}>
+                              {p.nome}
+                            </span>
                           </div>
                         </div>
                       );
@@ -1202,52 +1223,70 @@ export default function PedidosPage() {
                 )}
               </div>
 
-              {/* 3. Fornecedor (Multi-seleção dos Fornecedores do Gestão) */}
+              {/* 3. Fornecedor (Multi-seleção digitável dos Fornecedores do Gestão) */}
               <div className="relative">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
-                  Fornecedor ({selectedFornecedoresCotacao.length} selecionados)
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase flex items-center justify-between">
+                  <span>Fornecedor ({selectedFornecedoresCotacao.length} selecionados)</span>
+                  {selectedFornecedoresCotacao.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresCotacao([])}
+                      className="text-[10px] text-cyan-700 hover:underline font-normal"
+                    >
+                      Limpar
+                    </button>
+                  )}
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsFornecedoresCotacaoOpen(!isFornecedoresCotacaoOpen)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
-                >
-                  <span className="truncate">
-                    {selectedFornecedoresCotacao.length === 0
-                      ? 'Todos os fornecedores'
-                      : `${selectedFornecedoresCotacao.length} fornecedores`}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
-                </button>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={
+                      selectedFornecedoresCotacao.length === 0
+                        ? 'Digite para buscar fornecedor...'
+                        : `${selectedFornecedoresCotacao.length} selecionado(s) - digite para mais...`
+                    }
+                    value={buscaFornecedorCotacao}
+                    onChange={(e) => {
+                      setBuscaFornecedorCotacao(e.target.value);
+                      setIsFornecedoresCotacaoOpen(true);
+                    }}
+                    onFocus={() => setIsFornecedoresCotacaoOpen(true)}
+                    className="w-full px-3 py-1.5 pr-8 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-cyan-600 font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsFornecedoresCotacaoOpen(!isFornecedoresCotacaoOpen)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 {isFornecedoresCotacaoOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[280px]">
-                    <input
-                      type="text"
-                      placeholder="Pesquisar fornecedor..."
-                      value={buscaFornecedorCotacao}
-                      onChange={(e) => setBuscaFornecedorCotacao(e.target.value)}
-                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
-                    />
-
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[300px]">
                     <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFornecedoresCotacao([])}
-                        className="hover:underline"
-                      >
-                        Desmarcar todos
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsFornecedoresCotacaoOpen(false)}
-                        className="hover:underline"
-                      >
-                        Fechar
-                      </button>
+                      <span>{fornecedores.filter((f) => f.nome.toLowerCase().includes(buscaFornecedorCotacao.toLowerCase())).length} fornecedores</span>
+                      <div className="flex items-center gap-2">
+                        {selectedFornecedoresCotacao.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFornecedoresCotacao([])}
+                            className="hover:underline text-rose-600"
+                          >
+                            Desmarcar todos
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsFornecedoresCotacaoOpen(false)}
+                          className="hover:underline text-slate-500 font-bold"
+                        >
+                          ✕ Fechar
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="max-h-48 overflow-y-auto space-y-1">
+                    <div className="max-h-56 overflow-y-auto space-y-1">
                       {fornecedores
                         .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorCotacao.toLowerCase()))
                         .map((f) => {
@@ -1255,17 +1294,18 @@ export default function PedidosPage() {
                           return (
                             <label
                               key={f.id}
-                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
-                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              title={f.nome}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200' : 'hover:bg-slate-50 text-slate-700'
                               }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={() => setSelectedFornecedoresCotacao(toggleArrayItem(selectedFornecedoresCotacao, f.nome))}
-                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                                className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0"
                               />
-                              <span className="truncate">{f.nome}</span>
+                              <span className="break-words leading-tight flex-1">{f.nome}</span>
                             </label>
                           );
                         })}
@@ -1462,7 +1502,10 @@ export default function PedidosPage() {
                     setSelectedProdutosCotacao([]);
                     setInputProdutoCotacao('');
                     setSelectedFornecedoresCotacao([]);
+                    setBuscaFornecedorCotacao('');
                     setSelectedGruposCotacao([]);
+                    setCotacaoProdutosList([]);
+                    setHasSearchedCotacao(false);
                   }}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                 >
@@ -1552,8 +1595,22 @@ export default function PedidosPage() {
                     <tr>
                       <td colSpan={12} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
-                          <Loader2 className="w-6 h-6 animate-spin text-cyan-700" />
-                          <span className="font-semibold text-xs">Carregando catálogo de produtos com códigos internos...</span>
+                          <Loader2 className="w-6 h-6 animate-spin text-amber-600" />
+                          <span className="font-semibold text-xs">Pesquisando produtos com códigos internos e fornecedores...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : !hasSearchedCotacao ? (
+                    <tr>
+                      <td colSpan={12} className="py-16 text-center text-slate-500 bg-slate-50/50">
+                        <div className="flex flex-col items-center justify-center gap-2 max-w-md mx-auto">
+                          <Search className="w-8 h-8 text-amber-500/80 mb-1" />
+                          <span className="font-bold text-sm text-slate-800">
+                            Nenhuma pesquisa realizada ainda
+                          </span>
+                          <span className="text-xs text-slate-500 text-center leading-relaxed">
+                            Preencha os campos da guia de pesquisa acima (Código Interno, Produtos, Fornecedor ou Grupo) e clique no botão <strong className="text-amber-700 font-bold">"Pesquisar Produtos"</strong> para listar os itens desejados.
+                          </span>
                         </div>
                       </td>
                     </tr>

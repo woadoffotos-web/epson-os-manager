@@ -27,6 +27,9 @@ import {
   Square,
   ArrowRight,
   Package,
+  PlusCircle,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -253,6 +256,19 @@ export default function PedidosPage() {
 
   const [selectedCotacao, setSelectedCotacao] = useState<any | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+
+  // Estados para o Modal de Inserir Novo Produto
+  const [isNovoProdutoModalOpen, setIsNovoProdutoModalOpen] = useState(false);
+  const [novoProdutoCodigo, setNovoProdutoCodigo] = useState('');
+  const [novoProdutoNome, setNovoProdutoNome] = useState('');
+  const [novoProdutoFornecedor, setNovoProdutoFornecedor] = useState('');
+  const [novoProdutoGrupoId, setNovoProdutoGrupoId] = useState('');
+  const [novoProdutoNomeGrupo, setNovoProdutoNomeGrupo] = useState('Diversos');
+  const [novoProdutoValorCusto, setNovoProdutoValorCusto] = useState('');
+  const [novoProdutoQtdPedida, setNovoProdutoQtdPedida] = useState('');
+  const [novoProdutoReservas, setNovoProdutoReservas] = useState('');
+  const [loadingGerarCodigo, setLoadingGerarCodigo] = useState(false);
+  const [savingNovoProduto, setSavingNovoProduto] = useState(false);
 
   // 1. Carregar Configurações Iniciais do Gestão Click
   useEffect(() => {
@@ -513,6 +529,7 @@ export default function PedidosPage() {
           nome: item.nome,
           grupo: item.nomeGrupo,
           estoqueAtual: item.estoqueAtual,
+          reservas: item.reservas || '',
           valorUltimaCompra: item.valorUltimaCompra,
           valorCotacao: valCot,
           quantidadePedida: qtdPedida,
@@ -571,6 +588,151 @@ export default function PedidosPage() {
     }
   };
 
+  // Imprimir em PDF na tela de Montar Cotação (Apenas produtos com quantidade a pedir diferente de zero)
+  const handleImprimirCotacaoMontagem = () => {
+    if (itensCotacaoSelecionados.length === 0) {
+      alert('Atenção: Preencha o campo "Qtd a Pedir" em pelo menos um produto para poder imprimir a cotação.');
+      return;
+    }
+
+    const payloadItens = itensCotacaoSelecionados.map((item) => {
+      const qtdPedida = parseFloat(item.quantidadePedida) || 0;
+      const valCot = parseFloat(item.valorCotacao) || 0;
+      return {
+        produtoId: item.produtoId,
+        codigo: item.codigo,
+        nome: item.nome,
+        grupo: item.nomeGrupo,
+        estoqueAtual: item.estoqueAtual,
+        reservas: item.reservas || '',
+        valorUltimaCompra: item.valorUltimaCompra,
+        valorCotacao: valCot,
+        quantidadePedida: qtdPedida,
+        subtotal: qtdPedida * valCot,
+        fornecedores: item.fornecedores,
+      };
+    });
+
+    const preview = {
+      id: 'montagem_preview',
+      numero: 'EM MONTAGEM',
+      nomeFornecedor: cotacaoNomeFornecedor.trim() || 'Múltiplos Fornecedores',
+      valorTotal: totalCotacaoMontagem,
+      quantidadeItens: payloadItens.length,
+      observacoes: cotacaoObservacoes.trim(),
+      itens: payloadItens,
+      criadoPor: currentUser?.name || 'Administrador',
+      createdAt: new Date().toISOString(),
+    };
+
+    setSelectedCotacao(preview);
+    setIsViewModalOpen(true);
+    setTimeout(() => {
+      window.print();
+    }, 400);
+  };
+
+  // Abertura do Modal de Inserir Novo Produto
+  const handleOpenNovoProdutoModal = async () => {
+    setLoadingGerarCodigo(true);
+    setIsNovoProdutoModalOpen(true);
+    setNovoProdutoNome('');
+    setNovoProdutoFornecedor(selectedFornecedoresCotacao[0] || cotacaoNomeFornecedor || '');
+    setNovoProdutoGrupoId(grupos[0]?.id || '');
+    setNovoProdutoNomeGrupo(grupos[0]?.nome || 'Diversos');
+    setNovoProdutoValorCusto('');
+    setNovoProdutoQtdPedida('');
+    setNovoProdutoReservas('');
+
+    try {
+      const res = await fetch('/api/pedidos?action=gerar_codigo_interno');
+      if (res.ok) {
+        const data = await res.json();
+        setNovoProdutoCodigo(data.codigoInterno || '');
+      } else {
+        const rand = String(Math.floor(100000 + Math.random() * 900000));
+        setNovoProdutoCodigo(rand);
+      }
+    } catch {
+      const rand = String(Math.floor(100000 + Math.random() * 900000));
+      setNovoProdutoCodigo(rand);
+    } finally {
+      setLoadingGerarCodigo(false);
+    }
+  };
+
+  // Regerar novo código interno exclusivo
+  const handleRegerarCodigo = async () => {
+    setLoadingGerarCodigo(true);
+    try {
+      const res = await fetch('/api/pedidos?action=gerar_codigo_interno');
+      if (res.ok) {
+        const data = await res.json();
+        setNovoProdutoCodigo(data.codigoInterno || '');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingGerarCodigo(false);
+    }
+  };
+
+  // Salvar e Inserir Novo Produto na lista em aberto da Cotação
+  const handleSalvarNovoProduto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!novoProdutoNome.trim()) {
+      alert('Por favor, informe o Nome do Produto.');
+      return;
+    }
+    if (!novoProdutoCodigo.trim() || novoProdutoCodigo.trim().length !== 6) {
+      alert('O código interno deve ter 6 dígitos.');
+      return;
+    }
+
+    try {
+      setSavingNovoProduto(true);
+      const res = await fetch('/api/pedidos?action=inserir_produto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigoInterno: novoProdutoCodigo.trim(),
+          nome: novoProdutoNome.trim(),
+          grupoId: novoProdutoGrupoId,
+          nomeGrupo: novoProdutoNomeGrupo,
+          fornecedor: novoProdutoFornecedor.trim(),
+          valorCusto: parseFloat(novoProdutoValorCusto) || 0,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao cadastrar novo produto.');
+        return;
+      }
+
+      const qtdPed = novoProdutoQtdPedida ? novoProdutoQtdPedida.trim() : '';
+      const prodInserido = {
+        ...data.produto,
+        quantidadePedida: qtdPed,
+        reservas: novoProdutoReservas.trim(),
+        valorCotacao: parseFloat(novoProdutoValorCusto) || 0,
+      };
+
+      // Insere imediatamente no topo da listagem de cotação em aberto
+      setCotacaoProdutosList((prev) => [prodInserido, ...prev]);
+      setHasSearchedCotacao(true);
+      setIsNovoProdutoModalOpen(false);
+
+      setSuccessCotacaoMessage(`Produto "${prodInserido.nome}" (Cód: ${prodInserido.codigo}) inserido na cotação com sucesso!`);
+      setTimeout(() => setSuccessCotacaoMessage(null), 5000);
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao comunicar com o servidor.');
+    } finally {
+      setSavingNovoProduto(false);
+    }
+  };
+
   // Exportar Montar Cotação para Excel
   const handleExportCotacaoExcel = () => {
     const listToExport = itensCotacaoSelecionados.length > 0 ? itensCotacaoSelecionados : cotacaoProdutosList;
@@ -596,6 +758,7 @@ export default function PedidosPage() {
         'Qtd Última Compra': item.quantidadeUltimaCompra ?? '-',
         'Valor Última Compra (R$)': item.valorUltimaCompra ? item.valorUltimaCompra.toFixed(2) : '0.00',
         'Valor na Cotação (R$)': valCot.toFixed(2),
+        'Reservas (OS / Venda)': item.reservas || '-',
         'Qtd a Ser Pedida': qPedida > 0 ? qPedida : '',
         'Subtotal (R$)': (qPedida * valCot).toFixed(2),
       };
@@ -1755,7 +1918,7 @@ export default function PedidosPage() {
 
             {/* Botões de Ação da Pesquisa e da Cotação */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={fetchProdutosCotacao}
@@ -1772,10 +1935,20 @@ export default function PedidosPage() {
 
                 <button
                   type="button"
+                  onClick={handleOpenNovoProdutoModal}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Criar e inserir um novo produto na cotação com código de 6 dígitos automático"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Inserir Novo Produto</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     handleDiscardDraft();
                   }}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Limpar</span>
@@ -1787,7 +1960,7 @@ export default function PedidosPage() {
                 <button
                   type="button"
                   onClick={handleExportCotacaoExcel}
-                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   <span>Exportar Excel (.xlsx)</span>
@@ -1795,8 +1968,9 @@ export default function PedidosPage() {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                  onClick={handleImprimirCotacaoMontagem}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Imprimir ou gerar PDF somente dos produtos com quantidade a pedir preenchida (> 0)"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Imprimir / PDF</span>
@@ -1879,45 +2053,90 @@ export default function PedidosPage() {
                 scrollbarColor: '#002B49 #e2e8f0',
               }}
             >
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-[#002B49] text-white sticky top-0 z-10 select-none">
-                  <tr className="border-b border-blue-900 text-[10px]">
-                    <th className="px-2.5 py-2 font-bold whitespace-nowrap sticky left-0 z-20 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
+              <table className="w-full text-left text-xs border-separate border-spacing-0">
+                <thead className="select-none">
+                  <tr className="text-[10px]">
+                    {/* 1. Código interno (Sticky) */}
+                    <th className="px-2.5 py-2 font-bold whitespace-nowrap sticky top-0 left-0 z-30 bg-[#002B49] text-white w-[110px] min-w-[110px] max-w-[110px] border-b border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
                       CÓDIGO INTERNO
                     </th>
-                    <th className="px-3 py-2 font-bold min-w-[240px] sticky left-[85px] z-20 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
+
+                    {/* 2. Nome do Produto (Sticky) */}
+                    <th className="px-3 py-2 font-bold sticky top-0 left-[110px] z-30 bg-[#002B49] text-white w-[280px] min-w-[280px] max-w-[280px] border-b border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
                       NOME DO PRODUTO
                     </th>
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap">ESTOQUE</th>
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-blue-950">QTD MÍNIMA</th>
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-blue-950">QTD MÁXIMA</th>
+
+                    {/* 3. Estoque */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#002B49] text-white border-b border-blue-900">
+                      ESTOQUE
+                    </th>
+
+                    {/* 4. Qtd Mínima */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-blue-950 text-white border-b border-blue-900">
+                      QTD MÍNIMA
+                    </th>
+
+                    {/* 5. Qtd Máxima */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-blue-950 text-white border-b border-blue-900">
+                      QTD MÁXIMA
+                    </th>
                     
-                    {/* Novos campos entre Quantidade Máxima e Última Compra */}
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-[#0F2D4A] text-indigo-200" title="Quantidade vendida no mês anterior">
+                    {/* 6. Vendas Mês Anterior */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#0F2D4A] text-indigo-200 border-b border-blue-900" title="Quantidade vendida no mês anterior">
                       VENDAS {mesesLabels.mesAnterior} (MÊS ANTERIOR)
                     </th>
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-[#163D63] text-cyan-200 font-black" title="Quantidade vendida no mês atual">
+
+                    {/* 7. Vendas Mês Atual */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#163D63] text-cyan-200 font-black border-b border-blue-900" title="Quantidade vendida no mês atual">
                       VENDAS {mesesLabels.mesAtual} (MÊS ATUAL)
                     </th>
 
-                    <th className="px-2 py-2 font-bold whitespace-nowrap">ÚLTIMA COMPRA</th>
-                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap">QTD ÚLT. COMPRA</th>
-                    <th className="px-2 py-2 font-bold text-right whitespace-nowrap bg-slate-900">VALOR ÚLT. COMPRA</th>
-                    <th className="px-2.5 py-2 font-bold text-right whitespace-nowrap bg-amber-950 text-amber-300">
+                    {/* 8. Última Compra */}
+                    <th className="px-2 py-2 font-bold whitespace-nowrap sticky top-0 z-20 bg-[#002B49] text-white border-b border-blue-900">
+                      ÚLTIMA COMPRA
+                    </th>
+
+                    {/* 9. Qtd Última Compra */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#002B49] text-white border-b border-blue-900">
+                      QTD ÚLT. COMPRA
+                    </th>
+
+                    {/* 10. Valor Última Compra */}
+                    <th className="px-2 py-2 font-bold text-right whitespace-nowrap sticky top-0 z-20 bg-slate-900 text-white border-b border-blue-900">
+                      VALOR ÚLT. COMPRA
+                    </th>
+
+                    {/* 11. Valor Cotação */}
+                    <th className="px-2.5 py-2 font-bold text-right whitespace-nowrap sticky top-0 z-20 bg-amber-950 text-amber-300 border-b border-blue-900">
                       VALOR COTAÇÃO (R$)
                     </th>
-                    <th className="px-2.5 py-2 font-bold text-center whitespace-nowrap bg-amber-500 text-slate-950 font-black">
+
+                    {/* 12. Reservas (OS / Venda) */}
+                    <th className="px-2.5 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#153e5e] text-amber-200 border-b border-blue-900" title="Nomes e quantidades reservadas para ordem de serviço ou venda">
+                      RESERVAS (OS / VENDA)
+                    </th>
+
+                    {/* 13. Qtd a Pedir */}
+                    <th className="px-2.5 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-amber-500 text-slate-950 font-black border-b border-blue-900">
                       QTD A PEDIR
                     </th>
-                    <th className="px-2.5 py-2 font-bold text-right whitespace-nowrap bg-[#001D33]">SUBTOTAL (R$)</th>
-                    <th className="px-2.5 py-2 font-bold text-center whitespace-nowrap">AÇÕES</th>
+
+                    {/* 14. Subtotal */}
+                    <th className="px-2.5 py-2 font-bold text-right whitespace-nowrap sticky top-0 z-20 bg-[#001D33] text-white border-b border-blue-900">
+                      SUBTOTAL (R$)
+                    </th>
+
+                    {/* 15. Ações */}
+                    <th className="px-2.5 py-2 font-bold text-center whitespace-nowrap sticky top-0 z-20 bg-[#002B49] text-white border-b border-blue-900">
+                      AÇÕES
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {loadingCotacao ? (
                     <tr>
-                      <td colSpan={14} className="py-12 text-center text-slate-500">
+                      <td colSpan={15} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-amber-600" />
                           <span className="font-semibold text-xs">Pesquisando produtos com códigos internos e fornecedores...</span>
@@ -1926,21 +2145,21 @@ export default function PedidosPage() {
                     </tr>
                   ) : !hasSearchedCotacao ? (
                     <tr>
-                      <td colSpan={14} className="py-16 text-center text-slate-500 bg-slate-50/50">
+                      <td colSpan={15} className="py-16 text-center text-slate-500 bg-slate-50/50">
                         <div className="flex flex-col items-center justify-center gap-2 max-w-md mx-auto">
                           <Search className="w-8 h-8 text-amber-500/80 mb-1" />
                           <span className="font-bold text-sm text-slate-800">
                             Nenhuma pesquisa realizada ainda
                           </span>
                           <span className="text-xs text-slate-500 text-center leading-relaxed">
-                            Preencha os campos da guia de pesquisa acima (Código Interno, Produtos, Fornecedor ou Grupo) e clique no botão <strong className="text-amber-700 font-bold">"Pesquisar Produtos"</strong> para listar os itens desejados.
+                            Preencha os campos da guia de pesquisa acima ou clique em <strong className="text-emerald-700 font-bold">"Inserir Novo Produto"</strong> para montar sua cotação diretamente.
                           </span>
                         </div>
                       </td>
                     </tr>
                   ) : cotacaoProdutosList.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="py-12 text-center text-slate-400">
+                      <td colSpan={15} className="py-12 text-center text-slate-400">
                         Nenhum produto encontrado para os filtros selecionados.
                       </td>
                     </tr>
@@ -1959,29 +2178,29 @@ export default function PedidosPage() {
                           key={item.produtoId}
                           className={`transition ${
                             qPedida > 0
-                              ? 'bg-amber-50/90 font-medium border-l-4 border-l-amber-500 border-b border-amber-200'
+                              ? 'bg-amber-50 font-medium'
                               : isEven
-                              ? 'bg-slate-100/70 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] border-b border-slate-200/90'
-                              : 'bg-white border-b border-slate-200/50'
+                              ? 'bg-slate-100/70'
+                              : 'bg-white'
                           } hover:bg-amber-100/40`}
                         >
                           {/* 1. Código interno do produto (Sticky) */}
-                          <td className={`px-2.5 py-1.5 font-mono font-bold text-[#002B49] whitespace-nowrap sticky left-0 z-10 border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.04)] ${
-                            qPedida > 0 ? 'bg-amber-100/80' : isEven ? 'bg-slate-100' : 'bg-white'
+                          <td className={`px-2.5 py-1.5 font-mono font-bold text-[#002B49] whitespace-nowrap sticky left-0 z-10 w-[110px] min-w-[110px] max-w-[110px] border-b border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.06)] ${
+                            qPedida > 0 ? 'bg-amber-100' : isEven ? 'bg-slate-100' : 'bg-white'
                           }`}>
                             {item.codigo}
                           </td>
 
                           {/* 2. Nome do Produto (Sticky) */}
-                          <td className={`px-3 py-1.5 sticky left-[85px] z-10 border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.04)] ${
-                            qPedida > 0 ? 'bg-amber-100/80' : isEven ? 'bg-slate-100' : 'bg-white'
+                          <td className={`px-3 py-1.5 sticky left-[110px] z-10 w-[280px] min-w-[280px] max-w-[280px] border-b border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.06)] ${
+                            qPedida > 0 ? 'bg-amber-100' : isEven ? 'bg-slate-100' : 'bg-white'
                           }`}>
-                            <span className="font-semibold text-slate-900 block">{item.nome}</span>
-                            <span className="text-[10px] text-slate-400 block font-medium">{item.nomeGrupo}</span>
+                            <span className="font-semibold text-slate-900 block truncate" title={item.nome}>{item.nome}</span>
+                            <span className="text-[10px] text-slate-400 block font-medium truncate">{item.nomeGrupo}</span>
                           </td>
 
                           {/* 3. Estoque Atual */}
-                          <td className="px-2 py-1.5 text-center font-bold font-mono">
+                          <td className="px-2 py-1.5 text-center font-bold font-mono border-b border-slate-200">
                             <span
                               className={`px-2 py-0.5 rounded text-xs ${
                                 isUnderStock
@@ -1995,7 +2214,7 @@ export default function PedidosPage() {
                           </td>
 
                           {/* 4. Quantidade Mínima (Editável pelo usuário) */}
-                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-blue-50/40">
+                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-blue-50/40 border-b border-slate-200">
                             <input
                               type="number"
                               min="0"
@@ -2010,7 +2229,7 @@ export default function PedidosPage() {
                           </td>
 
                           {/* 5. Quantidade Máxima (Editável pelo usuário) */}
-                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-blue-50/40">
+                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-blue-50/40 border-b border-slate-200">
                             <input
                               type="number"
                               min="0"
@@ -2025,38 +2244,38 @@ export default function PedidosPage() {
                           </td>
 
                           {/* 6. Vendas Mês Anterior (Gestão Click) */}
-                          <td className="px-2 py-1.5 text-center font-mono font-bold text-slate-700 bg-indigo-50/30 whitespace-nowrap">
+                          <td className="px-2 py-1.5 text-center font-mono font-bold text-slate-700 bg-indigo-50/30 whitespace-nowrap border-b border-slate-200">
                             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-xs">
                               {item.vendasMesAnterior ?? 0}
                             </span>
                           </td>
 
                           {/* 7. Vendas Mês Atual (Gestão Click) */}
-                          <td className="px-2 py-1.5 text-center font-mono font-bold text-indigo-900 bg-indigo-50/60 whitespace-nowrap">
+                          <td className="px-2 py-1.5 text-center font-mono font-bold text-indigo-900 bg-indigo-50/60 whitespace-nowrap border-b border-slate-200">
                             <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-950 text-xs font-black">
                               {item.vendasMesAtual ?? 0}
                             </span>
                           </td>
 
                           {/* 8. Data da Última Compra */}
-                          <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                          <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 whitespace-nowrap border-b border-slate-200">
                             {item.dataUltimaCompra || '-'}
                           </td>
 
                           {/* 9. Quantidade Comprada na Última Compra */}
-                          <td className="px-2 py-1.5 text-center font-mono font-medium text-slate-700 whitespace-nowrap">
+                          <td className="px-2 py-1.5 text-center font-mono font-medium text-slate-700 whitespace-nowrap border-b border-slate-200">
                             {item.quantidadeUltimaCompra ?? '-'}
                           </td>
 
                           {/* 10. Valor da Última Compra */}
-                          <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-700 whitespace-nowrap bg-slate-50">
+                          <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-700 whitespace-nowrap bg-slate-50 border-b border-slate-200">
                             {item.valorUltimaCompra
                               ? `R$ ${item.valorUltimaCompra.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                               : '-'}
                           </td>
 
-                          {/* 9. Valor na Cotação (Editável pelo usuário) */}
-                          <td className="px-1.5 py-1 text-right whitespace-nowrap bg-amber-50/70">
+                          {/* 11. Valor na Cotação (Editável pelo usuário) */}
+                          <td className="px-1.5 py-1 text-right whitespace-nowrap bg-amber-50/70 border-b border-slate-200">
                             <div className="flex items-center justify-end gap-1">
                               <span className="text-[10px] text-slate-400 font-bold">R$</span>
                               <input
@@ -2073,8 +2292,22 @@ export default function PedidosPage() {
                             </div>
                           </td>
 
-                          {/* 10. Quantidade a Ser Pedida (Em branco para digitação) */}
-                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-amber-100/50">
+                          {/* 12. Reservas (OS / Venda) */}
+                          <td className="px-2 py-1 text-center whitespace-nowrap border-b border-slate-200 bg-amber-50/20">
+                            <input
+                              type="text"
+                              placeholder="Ex: 2 un OS 4501, 1 un Venda"
+                              value={item.reservas || ''}
+                              onChange={(e) =>
+                                handleUpdateProductRow(item.produtoId, 'reservas', e.target.value)
+                              }
+                              className="w-44 px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:border-amber-600 bg-white text-slate-800 font-medium"
+                              title="Nomes e quantidades reservadas para ordem de serviço ou venda"
+                            />
+                          </td>
+
+                          {/* 13. Quantidade a Ser Pedida (Em branco para digitação) */}
+                          <td className="px-1.5 py-1 text-center whitespace-nowrap bg-amber-100/50 border-b border-slate-200">
                             <input
                               type="number"
                               min="0"
@@ -2093,15 +2326,15 @@ export default function PedidosPage() {
                             />
                           </td>
 
-                          {/* 11. Subtotal Calculado */}
-                          <td className="px-2.5 py-1.5 text-right font-mono font-bold whitespace-nowrap">
+                          {/* 14. Subtotal Calculado */}
+                          <td className="px-2.5 py-1.5 text-right font-mono font-bold whitespace-nowrap border-b border-slate-200">
                             <span className={subtotal > 0 ? 'text-emerald-800' : 'text-slate-400'}>
                               R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </td>
 
-                          {/* 12. Ação: Salvar Limites no Sistema */}
-                          <td className="px-2 py-1 text-center whitespace-nowrap">
+                          {/* 15. Ação: Salvar Limites no Sistema */}
+                          <td className="px-2 py-1 text-center whitespace-nowrap border-b border-slate-200">
                             <button
                               type="button"
                               onClick={() => handleSaveLimits(item)}
@@ -2280,8 +2513,11 @@ export default function PedidosPage() {
       {/* MODAL / DOCUMENTO: VISUALIZAR & IMPRIMIR COTAÇÃO               */}
       {/* ============================================================== */}
       {isViewModalOpen && selectedCotacao && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:p-0 print:bg-white print:fixed print:inset-0">
+          <div
+            id="printable-quotation-modal"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 print:max-h-none print:border-none print:shadow-none print:rounded-none"
+          >
             {/* Topo do Modal (Não impresso no papel) */}
             <div className="bg-[#002B49] text-white px-6 py-3.5 flex items-center justify-between shrink-0 print:hidden">
               <div className="flex items-center gap-3">
@@ -2289,10 +2525,11 @@ export default function PedidosPage() {
                   <FileCheck2 className="w-5 h-5 text-cyan-400" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Cotação de Preços nº #{selectedCotacao.numero}</h3>
+                  <h3 className="text-base font-bold">Cotação de Preços #{selectedCotacao.numero}</h3>
                   <p className="text-xs text-cyan-200">
-                    Finalizada em {new Date(selectedCotacao.createdAt).toLocaleDateString('pt-BR')} às{' '}
-                    {new Date(selectedCotacao.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    {selectedCotacao.numero === 'EM MONTAGEM'
+                      ? 'Prévia dos itens selecionados com quantidade a pedir'
+                      : `Finalizada em ${new Date(selectedCotacao.createdAt).toLocaleDateString('pt-BR')} às ${new Date(selectedCotacao.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
                   </p>
                 </div>
               </div>
@@ -2308,7 +2545,7 @@ export default function PedidosPage() {
                 </button>
                 <button
                   onClick={() => setIsViewModalOpen(false)}
-                  className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition"
+                  className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2358,19 +2595,20 @@ export default function PedidosPage() {
                 </div>
               </div>
 
-              {/* Tabela dos Itens Cotados */}
+              {/* Tabela dos Itens Cotados (Apenas itens com Qtd a Pedir > 0) */}
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                  Itens Requisitados para Cotação
+                  Itens Requisitados para Cotação (Qtd Pedida &gt; 0)
                 </h4>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
                       <tr>
-                        <th className="p-2 w-12 text-center">Item</th>
-                        <th className="p-2 w-32">Código Interno</th>
+                        <th className="p-2 w-10 text-center">Item</th>
+                        <th className="p-2 w-28">Código Interno</th>
                         <th className="p-2">Descrição do Produto</th>
-                        <th className="p-2 text-center w-24">Qtd Pedida</th>
+                        <th className="p-2">Reservas (OS / Venda)</th>
+                        <th className="p-2 text-center w-20">Qtd Pedida</th>
                         <th className="p-2 text-right w-28">Valor Unit. (R$)</th>
                         <th className="p-2 text-right w-28">Subtotal (R$)</th>
                       </tr>
@@ -2387,6 +2625,13 @@ export default function PedidosPage() {
                               <td className="p-2 text-center text-slate-500 font-mono">{i + 1}</td>
                               <td className="p-2 font-mono font-bold text-slate-800">{item.codigo}</td>
                               <td className="p-2 font-medium text-slate-900">{item.nome}</td>
+                              <td className="p-2 text-xs font-semibold text-amber-900">
+                                {item.reservas ? (
+                                  <span>{item.reservas}</span>
+                                ) : (
+                                  <span className="text-slate-400 font-normal italic">-</span>
+                                )}
+                              </td>
                               <td className="p-2 text-center font-bold font-mono text-cyan-900 text-sm">
                                 {qtd}
                               </td>
@@ -2438,19 +2683,215 @@ export default function PedidosPage() {
               <button
                 type="button"
                 onClick={() => setIsViewModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 rounded-lg transition"
+                className="px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
               >
                 Fechar
               </button>
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="px-5 py-2 text-xs font-bold text-white bg-[#002B49] hover:bg-[#001D33] rounded-lg shadow-xs flex items-center gap-1.5 transition"
+                className="px-5 py-2 text-xs font-bold text-white bg-[#002B49] hover:bg-[#001D33] rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Imprimir / Gerar PDF</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: INSERIR NOVO PRODUTO NA COTAÇÃO (6 DÍGITOS AUTOMÁTICO)  */}
+      {/* ============================================================== */}
+      {isNovoProdutoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-200">
+            {/* Cabeçalho do Modal */}
+            <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+                  <PlusCircle className="w-5 h-5 text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Inserir Novo Produto na Cotação
+                  </h3>
+                  <p className="text-[11px] text-emerald-200">
+                    Gera código exclusivo e insere na listagem em aberto
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNovoProdutoModalOpen(false)}
+                className="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Formulário */}
+            <form onSubmit={handleSalvarNovoProduto} className="p-5 space-y-4 text-xs">
+              {/* Código Interno de 6 Dígitos */}
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
+                    Código Interno Automático (6 dígitos)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRegerarCodigo}
+                    disabled={loadingGerarCodigo}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingGerarCodigo ? 'animate-spin' : ''}`} />
+                    <span>Gerar Outro</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={novoProdutoCodigo}
+                    onChange={(e) => setNovoProdutoCodigo(e.target.value)}
+                    className="w-full px-3 py-1.5 text-center font-mono font-black text-base tracking-widest text-[#002B49] bg-white border border-emerald-300 rounded-lg focus:outline-none focus:border-emerald-600 shadow-inner"
+                    placeholder="Ex: 849201"
+                  />
+                </div>
+                <p className="text-[10px] text-emerald-800 leading-tight">
+                  Código exclusivo verificado para evitar duplicidade com os produtos cadastrados no ERP.
+                </p>
+              </div>
+
+              {/* Nome do Produto */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Nome do Produto <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: CABO FLAT DO SCANNER EPSON L3150..."
+                  value={novoProdutoNome}
+                  onChange={(e) => setNovoProdutoNome(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600 font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Fornecedor */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                    Fornecedor
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Elgin, Pauta, Kalunga..."
+                    value={novoProdutoFornecedor}
+                    onChange={(e) => setNovoProdutoFornecedor(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+
+                {/* Grupo do Produto */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                    Grupo do Produto
+                  </label>
+                  <select
+                    value={novoProdutoNomeGrupo}
+                    onChange={(e) => {
+                      const selNome = e.target.value;
+                      setNovoProdutoNomeGrupo(selNome);
+                      const gObj = grupos.find((g) => g.nome === selNome);
+                      setNovoProdutoGrupoId(gObj ? gObj.id : '');
+                    }}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-emerald-600 font-medium text-slate-800"
+                  >
+                    {grupos.map((g) => (
+                      <option key={g.id} value={g.nome}>
+                        {g.nome}
+                      </option>
+                    ))}
+                    {!grupos.some((g) => g.nome === 'Diversos') && (
+                      <option value="Diversos">Diversos</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Valor Estimado / Cotação */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                    Valor Cotação (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={novoProdutoValorCusto}
+                    onChange={(e) => setNovoProdutoValorCusto(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600 font-mono"
+                  />
+                </div>
+
+                {/* Quantidade a Pedir */}
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-900 mb-1 uppercase">
+                    Qtd a Pedir Inicial
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="Ex: 5"
+                    value={novoProdutoQtdPedida}
+                    onChange={(e) => setNovoProdutoQtdPedida(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 bg-amber-50/50 focus:outline-none focus:border-amber-600 font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* Reservas (OS / Venda) */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Reservas (OS / Venda) (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: 2 un OS 4501, 1 un Venda Balcão"
+                  value={novoProdutoReservas}
+                  onChange={(e) => setNovoProdutoReservas(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600 font-medium"
+                />
+              </div>
+
+              {/* Botões do Rodapé */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNovoProdutoModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingNovoProduto}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                >
+                  {savingNovoProduto ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <PlusCircle className="w-3.5 h-3.5" />
+                  )}
+                  <span>Inserir na Cotação</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

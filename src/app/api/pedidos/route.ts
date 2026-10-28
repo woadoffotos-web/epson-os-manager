@@ -38,6 +38,27 @@ export async function GET(request: Request) {
     }
 
     // ================================================================
+    // AÇÃO 0.2: GERAR CÓDIGO INTERNO ÚNICO DE 6 DÍGITOS
+    // ================================================================
+    if (action === 'gerar_codigo_interno') {
+      const allCached = await prisma.productCatalogCache.findMany({
+        select: { codigoInterno: true },
+      });
+      const existingCodes = new Set(allCached.map((p) => p.codigoInterno).filter(Boolean));
+
+      let candidate = '';
+      let attempts = 0;
+      do {
+        // Gera número de 6 dígitos entre 100000 e 999999
+        const rand = Math.floor(100000 + Math.random() * 900000);
+        candidate = String(rand);
+        attempts++;
+      } while (existingCodes.has(candidate) && attempts < 1000);
+
+      return NextResponse.json({ codigoInterno: candidate });
+    }
+
+    // ================================================================
     // AÇÃO 1: CONFIG (Grupos e Fornecedores para os filtros de busca)
     // ================================================================
     if (action === 'config') {
@@ -521,6 +542,93 @@ export async function POST(request: Request) {
         cotacao: {
           ...novaCotacao,
           itens,
+        },
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 7: INSERIR NOVO PRODUTO NO CATÁLOGO / LISTAGEM EM ABERTO
+    // ================================================================
+    if (action === 'inserir_produto') {
+      const {
+        codigoInterno,
+        nome,
+        grupoId = '',
+        nomeGrupo = 'Diversos',
+        fornecedor = '',
+        fornecedores = [],
+        valorCusto = 0,
+      } = body;
+
+      if (!nome || !nome.trim()) {
+        return NextResponse.json({ error: 'O nome do produto é obrigatório.' }, { status: 400 });
+      }
+
+      let finalCodigo = (codigoInterno || '').trim();
+      if (!finalCodigo) {
+        // Se não informado, gera código de 6 dígitos único
+        const allCached = await prisma.productCatalogCache.findMany({ select: { codigoInterno: true } });
+        const existingCodes = new Set(allCached.map((p) => p.codigoInterno).filter(Boolean));
+        let attempts = 0;
+        do {
+          finalCodigo = String(Math.floor(100000 + Math.random() * 900000));
+          attempts++;
+        } while (existingCodes.has(finalCodigo) && attempts < 1000);
+      }
+
+      // Prepara fornecedores
+      const fornList =
+        Array.isArray(fornecedores) && fornecedores.length > 0
+          ? fornecedores
+          : fornecedor && fornecedor.trim()
+          ? [fornecedor.trim()]
+          : [];
+
+      const pId = `prod-${finalCodigo}`;
+
+      const savedProd = await prisma.productCatalogCache.upsert({
+        where: { produtoId: pId },
+        update: {
+          codigoInterno: finalCodigo,
+          nome: nome.trim(),
+          grupoId: String(grupoId || ''),
+          nomeGrupo: nomeGrupo ? String(nomeGrupo) : 'Diversos',
+          fornecedores: JSON.stringify(fornList),
+          valorCusto: parseFloat(valorCusto) || 0,
+        },
+        create: {
+          produtoId: pId,
+          codigoInterno: finalCodigo,
+          nome: nome.trim(),
+          grupoId: String(grupoId || ''),
+          nomeGrupo: nomeGrupo ? String(nomeGrupo) : 'Diversos',
+          fornecedores: JSON.stringify(fornList),
+          estoque: 0,
+          valorCusto: parseFloat(valorCusto) || 0,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Produto "${savedProd.nome}" (Cód: ${finalCodigo}) inserido com sucesso!`,
+        produto: {
+          produtoId: savedProd.produtoId,
+          codigo: savedProd.codigoInterno,
+          nome: savedProd.nome,
+          grupoId: savedProd.grupoId,
+          nomeGrupo: savedProd.nomeGrupo,
+          fornecedores: fornList,
+          estoqueAtual: 0,
+          estoqueMinimo: 0,
+          estoqueMaximo: 0,
+          vendasMesAnterior: 0,
+          vendasMesAtual: 0,
+          dataUltimaCompra: null,
+          quantidadeUltimaCompra: null,
+          valorUltimaCompra: savedProd.valorCusto,
+          valorCotacao: savedProd.valorCusto,
+          quantidadePedida: '',
+          reservas: '',
         },
       });
     }

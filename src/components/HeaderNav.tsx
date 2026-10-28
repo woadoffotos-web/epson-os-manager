@@ -28,7 +28,8 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
   const isHub = pathname === '/';
   const isUsersPage = pathname === '/usuarios';
   const isVipzPage = pathname.startsWith('/vipz');
-  const isInfogedGlobal = isHub || isUsersPage || isVipzPage;
+  const isPedidosPage = pathname.startsWith('/pedidos');
+  const isInfogedGlobal = isHub || isUsersPage || isVipzPage || isPedidosPage;
 
   const userRole = (currentUser?.role || 'TECNICO').toUpperCase();
   const isAdminOrManager = userRole === 'ADMIN' || userRole === 'GERENTE';
@@ -51,6 +52,7 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
     let moduleBadge = 'Central de Aplicativos';
     if (isUsersPage) moduleBadge = 'Gestão Corporativa';
     if (isVipzPage) moduleBadge = 'Vipz Infoged • Fidelidade';
+    if (isPedidosPage) moduleBadge = 'Pedido de Produtos • Cotações';
 
     return (
       <header className="w-full bg-[#07241A] text-white shadow-md select-none sticky top-0 z-40 border-b border-emerald-900/50">
@@ -61,7 +63,9 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
               <InfogedLogo white={true} height={30} alt="INFOGED Soluções Tecnológicas" />
               <span className={`hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
                 isVipzPage 
-                  ? 'bg-amber-950/80 border-amber-500/40 text-amber-300' 
+                  ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
+                  : isPedidosPage
+                  ? 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
                   : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
               }`}>
                 {moduleBadge}

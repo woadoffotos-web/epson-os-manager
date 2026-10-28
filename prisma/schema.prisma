@@ -297,3 +297,36 @@ model VipzSettings {
   isErpSyncActive    Boolean  @default(false)
   updatedAt          DateTime @updatedAt
 }
+
+// ==========================================
+// MÓDULO: PEDIDO DE PRODUTOS & COTAÇÕES
+// ==========================================
+
+model ProductStockLimit {
+  id            String   @id @default(uuid())
+  produtoId     String   @unique
+  codigoInterno String?
+  nome          String?
+  estoqueMinimo Float    @default(0)
+  estoqueMaximo Float    @default(0)
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ProductQuotation {
+  id              String   @id @default(uuid())
+  numero          String   @unique // ex: "0001", "0002"
+  sequencial      Int      @unique @default(autoincrement())
+  nomeFornecedor  String?
+  fornecedorId    String?
+  valorTotal      Float    @default(0)
+  quantidadeItens Int      @default(0)
+  observacoes     String?
+  itens           String   // JSON com lista de itens cotados
+  status          String   @default("FINALIZADA") // FINALIZADA, CANCELADA
+  criadoPor       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+

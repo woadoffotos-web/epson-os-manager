@@ -320,44 +320,81 @@ export default function InfogedHubPage() {
           </div>
 
           {/* ============================================================== */}
-          {/* MÓDULO 3: GESTÃO DE ESTOQUE & PEÇAS (PLANEJADO)                 */}
+          {/* MÓDULO 3: PEDIDO DE PRODUTOS & CENTRAL DE COTAÇÕES (ATIVO)     */}
           {/* ============================================================== */}
-          <div className="relative bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between overflow-hidden">
+          <div
+            className={`relative bg-white rounded-2xl p-6 shadow-sm border transition flex flex-col justify-between overflow-hidden group ${
+              canAccessEstoque || isAdminOrManager
+                ? 'border-cyan-300/80 hover:shadow-xl hover:border-cyan-500'
+                : 'border-slate-200 opacity-60'
+            }`}
+          >
+            <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-bl from-cyan-500/15 via-blue-500/10 to-transparent rounded-bl-full pointer-events-none transition group-hover:scale-125" />
+
             <div>
               <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200">
-                  <Package className="w-6 h-6 text-amber-600" />
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-600 to-[#002B49] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition">
+                  <Package className="w-6 h-6 text-cyan-200" />
                 </div>
-                <div className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
-                  <span>Próximo Módulo</span>
-                </div>
+                {canAccessEstoque || isAdminOrManager ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-50 border border-cyan-300 text-cyan-900 text-[11px] font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-cyan-600" />
+                    <span>Módulo Ativo</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold">
+                    <Lock className="w-3 h-3 text-slate-500" />
+                    <span>Não Liberado</span>
+                  </div>
+                )}
               </div>
 
               <div className="mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
-                  Logística & Insumos
+                <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-700 block">
+                  Compras & Suprimentos ERP
                 </span>
-                <h3 className="text-lg font-extrabold text-slate-900">
-                  Controle de Estoque & Peças
+                <h3 className="text-lg font-extrabold text-slate-900 group-hover:text-cyan-800 transition">
+                  Pedido de Produtos & Cotação
                 </h3>
               </div>
 
               <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                Rastreamento de peças de reposição, cabeças de impressão, tintas e alertas automáticos de estoque mínimo com histórico de faturamento.
+                Análise de giro de vendas por período, controle de estoque mínimo e máximo, montagem de cotações com exportação em Excel/PDF e histórico sequencial de cotações feitas.
               </p>
 
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 mb-5 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Módulo em fase de especificação e desenvolvimento.</span>
+              {/* Destaques das 3 Funcionalidades */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-cyan-50/60 rounded-xl border border-cyan-200/60 mb-5 text-center">
+                <div>
+                  <span className="text-[10px] text-cyan-800 font-medium block">Menu 1</span>
+                  <span className="text-xs font-black text-cyan-950">Últimas Vendas</span>
+                </div>
+                <div className="border-x border-cyan-200">
+                  <span className="text-[10px] text-cyan-800 font-medium block">Menu 2</span>
+                  <span className="text-xs font-black text-amber-900">Montar Cotação</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-cyan-800 font-medium block">Menu 3</span>
+                  <span className="text-xs font-black text-emerald-900">Cotações Feitas</span>
+                </div>
               </div>
             </div>
 
-            <button
-              disabled
-              className="w-full py-2.5 px-4 bg-slate-100 text-slate-400 text-xs font-bold rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <span>{canAccessEstoque ? 'Em Breve' : 'Não Liberado'}</span>
-            </button>
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              {canAccessEstoque || isAdminOrManager ? (
+                <Link
+                  href="/pedidos"
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-[#002B49] to-cyan-800 hover:from-[#001D33] hover:to-cyan-900 text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2"
+                >
+                  <Package className="w-4 h-4 text-cyan-200" />
+                  <span>Acessar Pedido de Produtos</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <div className="p-2 text-center text-xs text-slate-500 bg-slate-100 rounded-xl font-medium">
+                  Contate o administrador para liberar este módulo.
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ============================================================== */}

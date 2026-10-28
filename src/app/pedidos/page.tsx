@@ -93,6 +93,116 @@ export default function PedidosPage() {
   const [cotacaoNomeFornecedor, setCotacaoNomeFornecedor] = useState('');
   const [cotacaoObservacoes, setCotacaoObservacoes] = useState('');
 
+  // Rascunho persistente de "Montar Cotação" (salva última edição e recupera pós-login ou reabertura)
+  const [restoredDraftInfo, setRestoredDraftInfo] = useState<{
+    count: number;
+    savedAt: string;
+  } | null>(null);
+  const isDraftRestoredChecked = useRef(false);
+
+  // 1. Restaurar cotação em andamento do localStorage ao carregar a tela
+  useEffect(() => {
+    try {
+      const savedDraftStr = localStorage.getItem('epson_cotacao_draft');
+      if (savedDraftStr) {
+        const draft = JSON.parse(savedDraftStr);
+        if (draft && Array.isArray(draft.cotacaoProdutosList) && draft.cotacaoProdutosList.length > 0) {
+          setCotacaoProdutosList(draft.cotacaoProdutosList);
+          setHasSearchedCotacao(true);
+          if (draft.cotacaoNomeFornecedor) setCotacaoNomeFornecedor(draft.cotacaoNomeFornecedor);
+          if (draft.cotacaoObservacoes) setCotacaoObservacoes(draft.cotacaoObservacoes);
+          if (draft.cotacaoCodigo) setCotacaoCodigo(draft.cotacaoCodigo);
+          if (Array.isArray(draft.selectedGruposCotacao)) setSelectedGruposCotacao(draft.selectedGruposCotacao);
+          if (Array.isArray(draft.selectedFornecedoresCotacao)) setSelectedFornecedoresCotacao(draft.selectedFornecedoresCotacao);
+          if (Array.isArray(draft.selectedProdutosCotacao)) setSelectedProdutosCotacao(draft.selectedProdutosCotacao);
+
+          const filledCount = draft.cotacaoProdutosList.filter((item: any) => {
+            const q = parseFloat(item.quantidadePedida);
+            return !isNaN(q) && q > 0;
+          }).length;
+
+          const savedDate = draft.savedAt ? new Date(draft.savedAt) : new Date();
+          const savedTimeStr = savedDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+          setRestoredDraftInfo({
+            count: filledCount,
+            savedAt: savedTimeStr,
+          });
+
+          // Abre diretamente a aba de montar cotação para continuar de onde parou
+          setActiveTab('montar_cotacao');
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao recuperar rascunho de cotação:', e);
+    } finally {
+      isDraftRestoredChecked.current = true;
+    }
+  }, []);
+
+  // 2. Salvar automaticamente qualquer edição feita em "Montar Cotação"
+  useEffect(() => {
+    if (!isDraftRestoredChecked.current) return;
+
+    const hasItemsWithQty = cotacaoProdutosList.some((item) => {
+      const q = parseFloat(item.quantidadePedida);
+      return !isNaN(q) && q > 0;
+    });
+
+    const hasActiveContent =
+      hasItemsWithQty ||
+      cotacaoNomeFornecedor.trim().length > 0 ||
+      cotacaoObservacoes.trim().length > 0 ||
+      (hasSearchedCotacao && cotacaoProdutosList.length > 0);
+
+    if (hasActiveContent && cotacaoProdutosList.length > 0) {
+      const draft = {
+        savedAt: new Date().toISOString(),
+        cotacaoProdutosList,
+        cotacaoNomeFornecedor,
+        cotacaoObservacoes,
+        cotacaoCodigo,
+        selectedGruposCotacao,
+        selectedFornecedoresCotacao,
+        selectedProdutosCotacao,
+        hasSearchedCotacao,
+      };
+      try {
+        localStorage.setItem('epson_cotacao_draft', JSON.stringify(draft));
+      } catch (e) {
+        console.error('Erro ao salvar rascunho de cotação:', e);
+      }
+    }
+  }, [
+    cotacaoProdutosList,
+    cotacaoNomeFornecedor,
+    cotacaoObservacoes,
+    cotacaoCodigo,
+    selectedGruposCotacao,
+    selectedFornecedoresCotacao,
+    selectedProdutosCotacao,
+    hasSearchedCotacao,
+  ]);
+
+  const handleDiscardDraft = () => {
+    try {
+      localStorage.removeItem('epson_cotacao_draft');
+    } catch (e) {
+      console.error(e);
+    }
+    setRestoredDraftInfo(null);
+    setCotacaoProdutosList([]);
+    setCotacaoCodigo('');
+    setSelectedProdutosCotacao([]);
+    setInputProdutoCotacao('');
+    setSelectedFornecedoresCotacao([]);
+    setBuscaFornecedorCotacao('');
+    setSelectedGruposCotacao([]);
+    setCotacaoNomeFornecedor('');
+    setCotacaoObservacoes('');
+    setHasSearchedCotacao(false);
+  };
+
   const [savingLimitId, setSavingLimitId] = useState<string | null>(null);
   const [savedLimitId, setSavedLimitId] = useState<string | null>(null);
 
@@ -397,6 +507,14 @@ export default function PedidosPage() {
       );
       setCotacaoNomeFornecedor('');
       setCotacaoObservacoes('');
+
+      // Limpar rascunho salvo do localStorage
+      try {
+        localStorage.removeItem('epson_cotacao_draft');
+        setRestoredDraftInfo(null);
+      } catch (e) {
+        console.error(e);
+      }
 
       setSuccessCotacaoMessage(`Cotação nº ${data.cotacao.numero} finalizada com sucesso! Registro criado em "Cotações Feitas".`);
       setTimeout(() => setSuccessCotacaoMessage(null), 6000);
@@ -1160,6 +1278,45 @@ export default function PedidosPage() {
       {/* ============================================================== */}
       {activeTab === 'montar_cotacao' && (
         <div className="space-y-4 animate-in fade-in duration-150">
+          {/* Banner de Rascunho Recuperado Automaticamente */}
+          {restoredDraftInfo && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm animate-in fade-in duration-200">
+              <div className="flex items-center gap-3 text-amber-950 text-xs">
+                <div className="p-2 bg-amber-200/90 rounded-lg text-amber-900 shrink-0 shadow-xs">
+                  <Save className="w-4 h-4 text-amber-900" />
+                </div>
+                <div>
+                  <span className="font-bold block text-sm text-amber-950">
+                    Cotação em andamento recuperada com sucesso!
+                  </span>
+                  <span className="text-[11px] text-amber-800 leading-relaxed block mt-0.5">
+                    Todos os produtos, quantidades e preços foram restaurados exatamente de onde você parou
+                    {restoredDraftInfo.savedAt ? ` (última edição às ${restoredDraftInfo.savedAt})` : ''}
+                    {restoredDraftInfo.count > 0 ? ` com ${restoredDraftInfo.count} item(ns) com quantidade preenchida.` : '.'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDiscardDraft}
+                  className="px-3 py-1.5 text-xs font-bold text-amber-900 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 rounded-lg border border-amber-300 transition cursor-pointer shadow-xs"
+                >
+                  Descartar Rascunho
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRestoredDraftInfo(null)}
+                  className="px-2.5 py-1.5 text-xs text-amber-800 hover:text-amber-950 font-bold hover:bg-amber-100 rounded-lg transition"
+                  title="Fechar este aviso e continuar trabalhando"
+                >
+                  ✕ Fechar Aviso
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Guia de Pesquisa para Montar Cotação */}
           <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -1572,14 +1729,7 @@ export default function PedidosPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setCotacaoCodigo('');
-                    setSelectedProdutosCotacao([]);
-                    setInputProdutoCotacao('');
-                    setSelectedFornecedoresCotacao([]);
-                    setBuscaFornecedorCotacao('');
-                    setSelectedGruposCotacao([]);
-                    setCotacaoProdutosList([]);
-                    setHasSearchedCotacao(false);
+                    handleDiscardDraft();
                   }}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                 >

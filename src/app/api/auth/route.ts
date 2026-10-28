@@ -211,7 +211,7 @@ export async function POST(request: Request) {
         token,
       });
 
-      // Salvar Cookie HttpOnly seguro
+      // Salvar Cookie HttpOnly seguro de sessão (sem maxAge para não persistir permanentemente no navegador ao fechar a janela)
       response.cookies.set({
         name: AUTH_COOKIE_NAME,
         value: token,
@@ -219,7 +219,6 @@ export async function POST(request: Request) {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 7 * 24 * 60 * 60, // 7 dias
       });
 
       return response;

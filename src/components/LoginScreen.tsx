@@ -1,15 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Lock, Mail, Loader2, AlertCircle, ArrowRight, ShieldCheck, Layers } from 'lucide-react';
+import { Lock, Mail, Loader2, AlertCircle, ArrowRight, ShieldCheck, ShieldAlert, Layers } from 'lucide-react';
 import InfogedLogo from '@/components/InfogedLogo';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
   availableUsers?: any[];
+  securityNotice?: string | null;
 }
 
-export default function LoginScreen({ onLoginSuccess, availableUsers = [] }: LoginScreenProps) {
+export default function LoginScreen({ onLoginSuccess, availableUsers = [], securityNotice = null }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +87,16 @@ export default function LoginScreen({ onLoginSuccess, availableUsers = [] }: Log
 
           {/* Formulário */}
           <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4">
+            {securityNotice && (
+              <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs p-3.5 rounded-xl flex items-start gap-2.5 shadow-sm">
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed font-medium">
+                  <span className="font-bold block text-amber-950 mb-0.5">Aviso de Segurança</span>
+                  {securityNotice}
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs p-3.5 rounded-xl flex items-start gap-2.5">
                 <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />

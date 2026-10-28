@@ -8,6 +8,7 @@ import {
   getProdutosGestao,
   getProductDetailsBatch,
   searchProdutosGestao,
+  getMonthlySalesIndex,
 } from '@/lib/gestao';
 
 export const dynamic = 'force-dynamic';
@@ -223,10 +224,11 @@ export async function GET(request: Request) {
         ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      // 1. Buscar limites locais de estoque e histórico de compras completo em paralelo
-      const [limits, purchasesMap] = await Promise.all([
+      // 1. Buscar limites locais de estoque, histórico de compras e histórico de vendas de ambos os meses em paralelo
+      const [limits, purchasesMap, monthlySales] = await Promise.all([
         prisma.productStockLimit.findMany(),
         getPurchasesProductIndex(),
+        getMonthlySalesIndex(),
       ]);
 
       const limitsMap = new Map<string, any>();
@@ -320,6 +322,8 @@ export async function GET(request: Request) {
         const combinedSuppliers = Array.from(new Set([...registeredSuppliers, ...purchaseSuppliers]));
 
         const valorUltima = purchase?.valorUltimaCompra || p.valorCusto || 0;
+        const vendasAtual = monthlySales.mesAtual.get(pId) || 0;
+        const vendasAnterior = monthlySales.mesAnterior.get(pId) || 0;
 
         return {
           produtoId: pId,
@@ -331,6 +335,8 @@ export async function GET(request: Request) {
           estoqueAtual: p.estoque,
           estoqueMinimo: limit?.estoqueMinimo ?? 0,
           estoqueMaximo: limit?.estoqueMaximo ?? 0,
+          vendasMesAnterior: vendasAnterior,
+          vendasMesAtual: vendasAtual,
           dataUltimaCompra: purchase?.dataUltimaCompra || null,
           quantidadeUltimaCompra: purchase?.quantidadeUltimaCompra ?? null,
           valorUltimaCompra: valorUltima,
@@ -342,6 +348,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         totalProdutos: lista.length,
         produtos: lista,
+        mesesLabels: monthlySales.labels,
       });
     }
 

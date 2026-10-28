@@ -92,6 +92,45 @@ export default function PedidosPage() {
   const [hasSearchedCotacao, setHasSearchedCotacao] = useState(false);
   const [cotacaoNomeFornecedor, setCotacaoNomeFornecedor] = useState('');
   const [cotacaoObservacoes, setCotacaoObservacoes] = useState('');
+  const [mesesLabels, setMesesLabels] = useState<{ mesAnterior: string; mesAtual: string }>({
+    mesAnterior: 'MÊS ANTERIOR',
+    mesAtual: 'MÊS ATUAL',
+  });
+
+  // Controle de rolagem horizontal sincronizada e visível
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      setTableScrollWidth(tableContainerRef.current.scrollWidth);
+    }
+  }, [cotacaoProdutosList, activeTab]);
+
+  const handleTopScroll = () => {
+    if (tableContainerRef.current && topScrollRef.current) {
+      tableContainerRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  };
+
+  const handleTableScroll = () => {
+    if (tableContainerRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
+    }
+  };
+
+  const scrollToRight = () => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTo({ left: tableContainerRef.current.scrollWidth, behavior: 'smooth' });
+    }
+  };
+
+  const scrollToLeft = () => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+    }
+  };
 
   // Rascunho persistente de "Montar Cotação" (salva última edição e recupera pós-login ou reabertura)
   const [restoredDraftInfo, setRestoredDraftInfo] = useState<{
@@ -356,6 +395,9 @@ export default function PedidosPage() {
       if (res.ok) {
         const data = await res.json();
         setCotacaoProdutosList(data.produtos || []);
+        if (data.mesesLabels) {
+          setMesesLabels(data.mesesLabels);
+        }
       }
     } catch (err) {
       console.error('Erro ao buscar produtos para cotação:', err);
@@ -548,6 +590,8 @@ export default function PedidosPage() {
         'Estoque Atual': item.estoqueAtual,
         'Estoque Mínimo': item.estoqueMinimo,
         'Estoque Máximo': item.estoqueMaximo,
+        [`Vendas Mês Anterior (${mesesLabels.mesAnterior})`]: item.vendasMesAnterior ?? 0,
+        [`Vendas Mês Atual (${mesesLabels.mesAtual})`]: item.vendasMesAtual ?? 0,
         'Data Última Compra': item.dataUltimaCompra || '-',
         'Qtd Última Compra': item.quantidadeUltimaCompra ?? '-',
         'Valor Última Compra (R$)': item.valorUltimaCompra ? item.valorUltimaCompra.toFixed(2) : '0.00',
@@ -1793,15 +1837,69 @@ export default function PedidosPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto max-h-[620px]">
+            {/* Barra de rolagem superior e navegação rápida sempre visível */}
+            {hasSearchedCotacao && cotacaoProdutosList.length > 0 && (
+              <div className="bg-slate-100 border-b border-slate-300 px-3 py-2 flex items-center justify-between gap-3 text-xs select-none">
+                <div className="flex items-center gap-1.5 text-slate-700 font-semibold shrink-0">
+                  <span className="text-[11px] text-slate-500 uppercase tracking-wider font-bold mr-1">Rolar colunas:</span>
+                  <button
+                    type="button"
+                    onClick={scrollToLeft}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-[#002B49] font-bold transition flex items-center gap-1 text-[11px] shadow-xs cursor-pointer"
+                  >
+                    ⬅️ Código / Produto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={scrollToRight}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition flex items-center gap-1 text-[11px] shadow-xs cursor-pointer"
+                  >
+                    Qtd a Pedir & Subtotal ➡️
+                  </button>
+                </div>
+
+                {/* Barra de rolagem horizontal superior sincronizada */}
+                <div
+                  ref={topScrollRef}
+                  onScroll={handleTopScroll}
+                  className="flex-1 overflow-x-auto h-4 bg-slate-200/90 rounded-full cursor-ew-resize border border-slate-300 shadow-inner"
+                  title="Arraste esta barra para rolar horizontalmente as colunas da tabela"
+                >
+                  <div style={{ width: `${tableScrollWidth}px`, height: '1px' }} />
+                </div>
+              </div>
+            )}
+
+            <div
+              ref={tableContainerRef}
+              onScroll={handleTableScroll}
+              className="overflow-x-auto max-h-[620px] scrollbar-thin scrollbar-thumb-[#002B49] scrollbar-track-slate-200"
+              style={{
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#002B49 #e2e8f0',
+              }}
+            >
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-[#002B49] text-white sticky top-0 z-10 select-none">
                   <tr className="border-b border-blue-900 text-[10px]">
-                    <th className="px-2.5 py-2 font-bold whitespace-nowrap">CÓDIGO INTERNO</th>
-                    <th className="px-3 py-2 font-bold min-w-[200px]">NOME DO PRODUTO</th>
+                    <th className="px-2.5 py-2 font-bold whitespace-nowrap sticky left-0 z-20 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
+                      CÓDIGO INTERNO
+                    </th>
+                    <th className="px-3 py-2 font-bold min-w-[240px] sticky left-[85px] z-20 bg-[#002B49] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">
+                      NOME DO PRODUTO
+                    </th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap">ESTOQUE</th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-blue-950">QTD MÍNIMA</th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-blue-950">QTD MÁXIMA</th>
+                    
+                    {/* Novos campos entre Quantidade Máxima e Última Compra */}
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-[#0F2D4A] text-indigo-200" title="Quantidade vendida no mês anterior">
+                      VENDAS {mesesLabels.mesAnterior} (MÊS ANTERIOR)
+                    </th>
+                    <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-[#163D63] text-cyan-200 font-black" title="Quantidade vendida no mês atual">
+                      VENDAS {mesesLabels.mesAtual} (MÊS ATUAL)
+                    </th>
+
                     <th className="px-2 py-2 font-bold whitespace-nowrap">ÚLTIMA COMPRA</th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap">QTD ÚLT. COMPRA</th>
                     <th className="px-2 py-2 font-bold text-right whitespace-nowrap bg-slate-900">VALOR ÚLT. COMPRA</th>
@@ -1819,7 +1917,7 @@ export default function PedidosPage() {
                 <tbody>
                   {loadingCotacao ? (
                     <tr>
-                      <td colSpan={12} className="py-12 text-center text-slate-500">
+                      <td colSpan={14} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-amber-600" />
                           <span className="font-semibold text-xs">Pesquisando produtos com códigos internos e fornecedores...</span>
@@ -1828,7 +1926,7 @@ export default function PedidosPage() {
                     </tr>
                   ) : !hasSearchedCotacao ? (
                     <tr>
-                      <td colSpan={12} className="py-16 text-center text-slate-500 bg-slate-50/50">
+                      <td colSpan={14} className="py-16 text-center text-slate-500 bg-slate-50/50">
                         <div className="flex flex-col items-center justify-center gap-2 max-w-md mx-auto">
                           <Search className="w-8 h-8 text-amber-500/80 mb-1" />
                           <span className="font-bold text-sm text-slate-800">
@@ -1842,7 +1940,7 @@ export default function PedidosPage() {
                     </tr>
                   ) : cotacaoProdutosList.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-12 text-center text-slate-400">
+                      <td colSpan={14} className="py-12 text-center text-slate-400">
                         Nenhum produto encontrado para os filtros selecionados.
                       </td>
                     </tr>
@@ -1867,13 +1965,17 @@ export default function PedidosPage() {
                               : 'bg-white border-b border-slate-200/50'
                           } hover:bg-amber-100/40`}
                         >
-                          {/* 1. Código interno do produto */}
-                          <td className="px-2.5 py-1.5 font-mono font-bold text-[#002B49] whitespace-nowrap">
+                          {/* 1. Código interno do produto (Sticky) */}
+                          <td className={`px-2.5 py-1.5 font-mono font-bold text-[#002B49] whitespace-nowrap sticky left-0 z-10 border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.04)] ${
+                            qPedida > 0 ? 'bg-amber-100/80' : isEven ? 'bg-slate-100' : 'bg-white'
+                          }`}>
                             {item.codigo}
                           </td>
 
-                          {/* 2. Nome do Produto */}
-                          <td className="px-3 py-1.5">
+                          {/* 2. Nome do Produto (Sticky) */}
+                          <td className={`px-3 py-1.5 sticky left-[85px] z-10 border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.04)] ${
+                            qPedida > 0 ? 'bg-amber-100/80' : isEven ? 'bg-slate-100' : 'bg-white'
+                          }`}>
                             <span className="font-semibold text-slate-900 block">{item.nome}</span>
                             <span className="text-[10px] text-slate-400 block font-medium">{item.nomeGrupo}</span>
                           </td>
@@ -1922,17 +2024,31 @@ export default function PedidosPage() {
                             />
                           </td>
 
-                          {/* 6. Data da Última Compra */}
+                          {/* 6. Vendas Mês Anterior (Gestão Click) */}
+                          <td className="px-2 py-1.5 text-center font-mono font-bold text-slate-700 bg-indigo-50/30 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-xs">
+                              {item.vendasMesAnterior ?? 0}
+                            </span>
+                          </td>
+
+                          {/* 7. Vendas Mês Atual (Gestão Click) */}
+                          <td className="px-2 py-1.5 text-center font-mono font-bold text-indigo-900 bg-indigo-50/60 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-950 text-xs font-black">
+                              {item.vendasMesAtual ?? 0}
+                            </span>
+                          </td>
+
+                          {/* 8. Data da Última Compra */}
                           <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
                             {item.dataUltimaCompra || '-'}
                           </td>
 
-                          {/* 7. Quantidade Comprada na Última Compra */}
+                          {/* 9. Quantidade Comprada na Última Compra */}
                           <td className="px-2 py-1.5 text-center font-mono font-medium text-slate-700 whitespace-nowrap">
                             {item.quantidadeUltimaCompra ?? '-'}
                           </td>
 
-                          {/* 8. Valor da Última Compra */}
+                          {/* 10. Valor da Última Compra */}
                           <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-700 whitespace-nowrap bg-slate-50">
                             {item.valorUltimaCompra
                               ? `R$ ${item.valorUltimaCompra.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

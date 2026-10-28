@@ -137,30 +137,110 @@ export async function getFornecedores(termo?: string, forceRefresh = false) {
   }
 }
 
-// 3. Vendas do Período com itens
+// 3. Vendas do Período com itens (busca paralela de páginas para alta performance)
 export async function getVendasPeriodo(dataInicio: string, dataFim: string) {
-  const res = await fetchGestaoApi(`/vendas?data_inicio=${dataInicio}&data_fim=${dataFim}&limite=100`);
-  if (!res.ok || !res.data?.data) {
+  const p1 = await fetchGestaoApi(`/vendas?data_inicio=${dataInicio}&data_fim=${dataFim}&limite=100&pagina=1`);
+  if (!p1.ok || !p1.data?.data) {
     return [];
   }
 
-  let vendas = Array.isArray(res.data.data) ? res.data.data : [];
-  const totalPaginas = Math.min(res.data?.meta?.total_paginas || 1, 5);
+  let vendas = Array.isArray(p1.data.data) ? p1.data.data : [];
+  const totalPaginas = Math.min(p1.data?.meta?.total_paginas || 1, 10);
 
   if (totalPaginas > 1) {
+    const pagePromises = [];
     for (let p = 2; p <= totalPaginas; p++) {
-      try {
-        const pRes = await fetchGestaoApi(`/vendas?data_inicio=${dataInicio}&data_fim=${dataFim}&limite=100&pagina=${p}`);
-        if (pRes.ok && Array.isArray(pRes.data?.data)) {
-          vendas = vendas.concat(pRes.data.data);
-        }
-      } catch (e) {
-        console.error(`Erro ao buscar pág ${p} de vendas:`, e);
+      pagePromises.push(fetchGestaoApi(`/vendas?data_inicio=${dataInicio}&data_fim=${dataFim}&limite=100&pagina=${p}`));
+    }
+    const results = await Promise.all(pagePromises);
+    for (const r of results) {
+      if (r.ok && Array.isArray(r.data?.data)) {
+        vendas = vendas.concat(r.data.data);
       }
     }
   }
 
   return vendas;
+}
+
+// 3.1. Vendas Consolidadas por Produto no Mês Atual e Mês Anterior (Cache em memória: 10 minutos)
+let monthlySalesCache: {
+  timestamp: number;
+  data: {
+    mesAtual: Map<string, number>;
+    mesAnterior: Map<string, number>;
+    labels: { mesAtual: string; mesAnterior: string };
+  };
+} | null = null;
+
+export async function getMonthlySalesIndex(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && monthlySalesCache && now - monthlySalesCache.timestamp < 10 * 60 * 1000) {
+    return monthlySalesCache.data;
+  }
+
+  const nowDate = new Date();
+  const anoAtual = nowDate.getFullYear();
+  const mesAtual = nowDate.getMonth();
+
+  const mesAtualInicio = new Date(Date.UTC(anoAtual, mesAtual, 1)).toISOString().split('T')[0];
+  const mesAtualFim = nowDate.toISOString().split('T')[0];
+
+  const mesAnteriorDate = new Date(Date.UTC(anoAtual, mesAtual - 1, 1));
+  const anoAnterior = mesAnteriorDate.getFullYear();
+  const mesAnterior = mesAnteriorDate.getMonth();
+  const mesAnteriorInicio = new Date(Date.UTC(anoAnterior, mesAnterior, 1)).toISOString().split('T')[0];
+  const mesAnteriorFim = new Date(Date.UTC(anoAtual, mesAtual, 0)).toISOString().split('T')[0];
+
+  const nomeMesAnterior = mesAnteriorDate.toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' }).replace('.', '').toUpperCase();
+  const nomeMesAtual = nowDate.toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' }).replace('.', '').toUpperCase();
+
+  const [vendasAtual, vendasAnterior] = await Promise.all([
+    getVendasPeriodo(mesAtualInicio, mesAtualFim),
+    getVendasPeriodo(mesAnteriorInicio, mesAnteriorFim),
+  ]);
+
+  const mapAtual = new Map<string, number>();
+  for (const v of vendasAtual) {
+    if (Array.isArray(v.produtos)) {
+      for (const item of v.produtos) {
+        const p = item.produto || item;
+        const pId = String(p.produto_id || p.id);
+        if (!pId) continue;
+        const qtd = parseFloat(p.quantidade) || 0;
+        mapAtual.set(pId, (mapAtual.get(pId) || 0) + qtd);
+      }
+    }
+  }
+
+  const mapAnterior = new Map<string, number>();
+  for (const v of vendasAnterior) {
+    if (Array.isArray(v.produtos)) {
+      for (const item of v.produtos) {
+        const p = item.produto || item;
+        const pId = String(p.produto_id || p.id);
+        if (!pId) continue;
+        const qtd = parseFloat(p.quantidade) || 0;
+        mapAnterior.set(pId, (mapAnterior.get(pId) || 0) + qtd);
+      }
+    }
+  }
+
+  const result = {
+    mesAtual: mapAtual,
+    mesAnterior: mapAnterior,
+    labels: {
+      mesAtual: nomeMesAtual,
+      mesAnterior: nomeMesAnterior,
+    },
+  };
+
+  monthlySalesCache = {
+    timestamp: now,
+    data: result,
+  };
+
+  return result;
 }
 
 // 4. Cache em memória para histórico de compras completo (TTL de 15 minutos)

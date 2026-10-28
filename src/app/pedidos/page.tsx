@@ -12,26 +12,21 @@ import {
   Search,
   Filter,
   RotateCcw,
-  Download,
   Printer,
   Eye,
   CheckCircle2,
   AlertCircle,
   Loader2,
   Save,
-  Trash2,
-  Calendar,
-  Package,
-  Layers,
-  ArrowRight,
-  ExternalLink,
-  Plus,
-  X,
   FileSpreadsheet,
   Building2,
   Tag,
-  DollarSign,
-  Hash,
+  ChevronDown,
+  X,
+  CheckSquare,
+  Square,
+  ArrowRight,
+  Package,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -40,57 +35,76 @@ export default function PedidosPage() {
   // 3 Menus principais da aplicação
   const [activeTab, setActiveTab] = useState<'ultimas_vendas' | 'montar_cotacao' | 'cotacoes_feitas'>('ultimas_vendas');
 
-  // Estado de configuração (grupos e fornecedores)
+  // Configurações globais (Grupos e Fornecedores cadastrados no Gestão Click)
   const [grupos, setGrupos] = useState<{ id: string; nome: string }[]>([]);
   const [fornecedores, setFornecedores] = useState<{ id: string; nome: string; documento: string }[]>([]);
 
   // ====================================================================
-  // ESTADOS - MENU 1: ÚLTIMAS VENDAS
+  // ESTADOS DE FILTRO COMPARTILHADOS (SELEÇÃO MÚLTIPLA)
   // ====================================================================
+  // 1. Grupos selecionados (Array de IDs ou Nomes)
+  const [selectedGruposVendas, setSelectedGruposVendas] = useState<string[]>([]);
+  const [isGruposVendasOpen, setIsGruposVendasOpen] = useState(false);
+  const [buscaGrupoVendas, setBuscaGrupoVendas] = useState('');
+
+  const [selectedGruposCotacao, setSelectedGruposCotacao] = useState<string[]>([]);
+  const [isGruposCotacaoOpen, setIsGruposCotacaoOpen] = useState(false);
+  const [buscaGrupoCotacao, setBuscaGrupoCotacao] = useState('');
+
+  // 2. Fornecedores selecionados (Array de Nomes)
+  const [selectedFornecedoresVendas, setSelectedFornecedoresVendas] = useState<string[]>([]);
+  const [isFornecedoresVendasOpen, setIsFornecedoresVendasOpen] = useState(false);
+  const [buscaFornecedorVendas, setBuscaFornecedorVendas] = useState('');
+
+  const [selectedFornecedoresCotacao, setSelectedFornecedoresCotacao] = useState<string[]>([]);
+  const [isFornecedoresCotacaoOpen, setIsFornecedoresCotacaoOpen] = useState(false);
+  const [buscaFornecedorCotacao, setBuscaFornecedorCotacao] = useState('');
+
+  // 3. Produtos pesquisáveis e com múltipla seleção (Tags de produtos selecionados)
+  const [selectedProdutosVendas, setSelectedProdutosVendas] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [inputProdutoVendas, setInputProdutoVendas] = useState('');
+  const [sugestoesProdutosVendas, setSugestoesProdutosVendas] = useState<any[]>([]);
+  const [isBuscandoProdutosVendas, setIsBuscandoProdutosVendas] = useState(false);
+  const [isProdutosVendasOpen, setIsProdutosVendasOpen] = useState(false);
+
+  const [selectedProdutosCotacao, setSelectedProdutosCotacao] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [inputProdutoCotacao, setInputProdutoCotacao] = useState('');
+  const [sugestoesProdutosCotacao, setSugestoesProdutosCotacao] = useState<any[]>([]);
+  const [isBuscandoProdutosCotacao, setIsBuscandoProdutosCotacao] = useState(false);
+  const [isProdutosCotacaoOpen, setIsProdutosCotacaoOpen] = useState(false);
+
+  // 4. Códigos
+  const [vendasCodigo, setVendasCodigo] = useState('');
+  const [cotacaoCodigo, setCotacaoCodigo] = useState('');
+
+  // 5. Período de Vendas
   const [vendasDataInicio, setVendasDataInicio] = useState('');
   const [vendasDataFim, setVendasDataFim] = useState('');
-  const [vendasCodigo, setVendasCodigo] = useState('');
-  const [vendasNome, setVendasNome] = useState('');
-  const [vendasFornecedor, setVendasFornecedor] = useState('');
-  const [vendasGrupo, setVendasGrupo] = useState('');
 
+  // ====================================================================
+  // LISTAS E FEEDBACKS
+  // ====================================================================
   const [ultimasVendasList, setUltimasVendasList] = useState<any[]>([]);
   const [loadingVendas, setLoadingVendas] = useState(false);
 
-  // ====================================================================
-  // ESTADOS - MENU 2: MONTAR COTAÇÃO
-  // ====================================================================
-  const [cotacaoCodigo, setCotacaoCodigo] = useState('');
-  const [cotacaoNome, setCotacaoNome] = useState('');
-  const [cotacaoFornecedor, setCotacaoFornecedor] = useState('');
-  const [cotacaoGrupo, setCotacaoGrupo] = useState('');
-
   const [cotacaoProdutosList, setCotacaoProdutosList] = useState<any[]>([]);
   const [loadingCotacao, setLoadingCotacao] = useState(false);
-
-  // Fornecedor e Observações da cotação em montagem
   const [cotacaoNomeFornecedor, setCotacaoNomeFornecedor] = useState('');
   const [cotacaoObservacoes, setCotacaoObservacoes] = useState('');
 
-  // Feedbacks de salvamento de limites
   const [savingLimitId, setSavingLimitId] = useState<string | null>(null);
   const [savedLimitId, setSavedLimitId] = useState<string | null>(null);
 
-  // Feedback de finalização de cotação
   const [finalizingCotacao, setFinalizingCotacao] = useState(false);
   const [successCotacaoMessage, setSuccessCotacaoMessage] = useState<string | null>(null);
 
-  // ====================================================================
-  // ESTADOS - MENU 3: COTAÇÕES FEITAS
-  // ====================================================================
   const [cotacoesFeitasList, setCotacoesFeitasList] = useState<any[]>([]);
   const [loadingFeitas, setLoadingFeitas] = useState(false);
 
-  // Modal de Visualização / Impressão de Cotação
   const [selectedCotacao, setSelectedCotacao] = useState<any | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
-  // 1. Carregar Configurações Iniciais
+  // 1. Carregar Configurações Iniciais do Gestão Click
   useEffect(() => {
     const loadConfig = async () => {
       try {
@@ -111,7 +125,59 @@ export default function PedidosPage() {
     loadConfig();
   }, []);
 
-  // 2. Carregar Últimas Vendas
+  // 2. Busca Dinâmica de Produtos ao Digitar (Menu 1: Vendas)
+  useEffect(() => {
+    if (!inputProdutoVendas || inputProdutoVendas.trim().length < 2) {
+      setSugestoesProdutosVendas([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsBuscandoProdutosVendas(true);
+        const res = await fetch(`/api/pedidos?action=buscar_produtos&termo=${encodeURIComponent(inputProdutoVendas.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSugestoesProdutosVendas(data.produtos || []);
+          setIsProdutosVendasOpen(true);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsBuscandoProdutosVendas(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [inputProdutoVendas]);
+
+  // 3. Busca Dinâmica de Produtos ao Digitar (Menu 2: Cotação)
+  useEffect(() => {
+    if (!inputProdutoCotacao || inputProdutoCotacao.trim().length < 2) {
+      setSugestoesProdutosCotacao([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsBuscandoProdutosCotacao(true);
+        const res = await fetch(`/api/pedidos?action=buscar_produtos&termo=${encodeURIComponent(inputProdutoCotacao.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSugestoesProdutosCotacao(data.produtos || []);
+          setIsProdutosCotacaoOpen(true);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsBuscandoProdutosCotacao(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [inputProdutoCotacao]);
+
+  // 4. Carregar / Pesquisar Últimas Vendas
   const fetchUltimasVendas = async () => {
     try {
       setLoadingVendas(true);
@@ -120,9 +186,21 @@ export default function PedidosPage() {
       if (vendasDataInicio) params.set('data_inicio', vendasDataInicio);
       if (vendasDataFim) params.set('data_fim', vendasDataFim);
       if (vendasCodigo) params.set('codigo', vendasCodigo);
-      if (vendasNome) params.set('nome', vendasNome);
-      if (vendasFornecedor) params.set('fornecedor', vendasFornecedor);
-      if (vendasGrupo) params.set('grupo_id', vendasGrupo);
+
+      // Envia múltiplos grupos
+      if (selectedGruposVendas.length > 0) {
+        params.set('grupos', selectedGruposVendas.join(','));
+      }
+
+      // Envia múltiplos fornecedores
+      if (selectedFornecedoresVendas.length > 0) {
+        params.set('fornecedores', selectedFornecedoresVendas.join(','));
+      }
+
+      // Envia múltiplos produtos selecionados
+      if (selectedProdutosVendas.length > 0) {
+        params.set('produtos', selectedProdutosVendas.map((p) => p.id).join(','));
+      }
 
       const res = await fetch(`/api/pedidos?${params.toString()}`);
       if (res.ok) {
@@ -136,23 +214,31 @@ export default function PedidosPage() {
     }
   };
 
-  // Carrega vendas ao iniciar ou mudar datas
   useEffect(() => {
     if (activeTab === 'ultimas_vendas' && vendasDataInicio && vendasDataFim) {
       fetchUltimasVendas();
     }
   }, [activeTab, vendasDataInicio, vendasDataFim]);
 
-  // 3. Carregar Produtos para Montar Cotação
+  // 5. Carregar / Pesquisar Produtos para Montar Cotação
   const fetchProdutosCotacao = async () => {
     try {
       setLoadingCotacao(true);
       const params = new URLSearchParams();
       params.set('action', 'montar_cotacao');
       if (cotacaoCodigo) params.set('codigo', cotacaoCodigo);
-      if (cotacaoNome) params.set('nome', cotacaoNome);
-      if (cotacaoFornecedor) params.set('fornecedor', cotacaoFornecedor);
-      if (cotacaoGrupo) params.set('grupo_id', cotacaoGrupo);
+
+      if (selectedGruposCotacao.length > 0) {
+        params.set('grupos', selectedGruposCotacao.join(','));
+      }
+
+      if (selectedFornecedoresCotacao.length > 0) {
+        params.set('fornecedores', selectedFornecedoresCotacao.join(','));
+      }
+
+      if (selectedProdutosCotacao.length > 0) {
+        params.set('produtos', selectedProdutosCotacao.map((p) => p.id).join(','));
+      }
 
       const res = await fetch(`/api/pedidos?${params.toString()}`);
       if (res.ok) {
@@ -172,7 +258,7 @@ export default function PedidosPage() {
     }
   }, [activeTab]);
 
-  // 4. Carregar Cotações Feitas
+  // 6. Carregar Cotações Feitas
   const fetchCotacoesFeitas = async () => {
     try {
       setLoadingFeitas(true);
@@ -208,7 +294,7 @@ export default function PedidosPage() {
     );
   };
 
-  // Salvar Quantidade Mínima e Máxima no Banco
+  // Salvar Quantidade Mínima e Máxima no Banco Local
   const handleSaveLimits = async (item: any) => {
     try {
       setSavingLimitId(item.produtoId);
@@ -319,7 +405,7 @@ export default function PedidosPage() {
       setSuccessCotacaoMessage(`Cotação nº ${data.cotacao.numero} finalizada com sucesso! Registro criado em "Cotações Feitas".`);
       setTimeout(() => setSuccessCotacaoMessage(null), 6000);
 
-      // Atualizar lista de cotações feitas
+      // Atualizar histórico de cotações feitas
       fetchCotacoesFeitas();
     } catch (err) {
       console.error(err);
@@ -341,9 +427,9 @@ export default function PedidosPage() {
       const qPedida = parseFloat(item.quantidadePedida) || 0;
       const valCot = parseFloat(item.valorCotacao) || 0;
       return {
-        'Código': item.codigo,
+        'Código Interno': item.codigo,
         'Nome do Produto': item.nome,
-        'Grupo': item.nomeGrupo,
+        'Grupo do Produto': item.nomeGrupo,
         'Fornecedores': item.fornecedores?.join(', ') || '-',
         'Estoque Atual': item.estoqueAtual,
         'Estoque Mínimo': item.estoqueMinimo,
@@ -368,9 +454,9 @@ export default function PedidosPage() {
     }
 
     const dataExcel = ultimasVendasList.map((item) => ({
-      'Código': item.codigo,
+      'Código Interno': item.codigo,
       'Nome do Produto': item.nome,
-      'Grupo': item.nomeGrupo,
+      'Grupo do Produto': item.nomeGrupo,
       'Fornecedor(es)': item.fornecedores?.join(', ') || '-',
       'Qtd Vendida no Período': item.quantidadeVendida,
     }));
@@ -397,6 +483,11 @@ export default function PedidosPage() {
     }, 400);
   };
 
+  // Helpers para alternar itens em arrays de seleção múltipla
+  const toggleArrayItem = (list: string[], item: string) => {
+    return list.includes(item) ? list.filter((i) => i !== item) : [...list, item];
+  };
+
   return (
     <div className="space-y-5 pb-12">
       {/* ============================================================== */}
@@ -420,7 +511,7 @@ export default function PedidosPage() {
               Pedido de Produtos & Central de Cotações
             </h1>
             <p className="text-xs text-cyan-200/80 mt-0.5">
-              Análise de giro de vendas, gestão de limites de estoque e fechamento de cotações com fornecedores.
+              Análise de giro com código interno real, grupos do cadastro ERP e cotações personalizadas.
             </p>
           </div>
         </div>
@@ -463,7 +554,7 @@ export default function PedidosPage() {
       {/* BARRA DE NAVEGAÇÃO DOS 3 MENUS SOLICITADOS                    */}
       {/* ============================================================== */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-1.5 flex items-center gap-2 overflow-x-auto select-none">
-        {/* Menu 1: Últimas Vendas (Tela Principal) */}
+        {/* Menu 1: Últimas Vendas */}
         <button
           type="button"
           onClick={() => setActiveTab('ultimas_vendas')}
@@ -526,85 +617,260 @@ export default function PedidosPage() {
       {/* ============================================================== */}
       {activeTab === 'ultimas_vendas' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          {/* Guia de Pesquisa das Vendas */}
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-3">
+          {/* Guia de Pesquisa das Vendas com Filtros de Seleção Múltipla */}
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-[#002B49]" />
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Guia de Pesquisa &bull; Vendas por Período
+                  Guia de Pesquisa &bull; Últimas Vendas (Múltipla Seleção)
                 </h2>
               </div>
               <span className="text-[11px] text-slate-500">
-                Você pode preencher um ou múltiplos filtros simultaneamente
+                Selecione mais de um grupo, fornecedor e produtos simultaneamente
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {/* Filtro: Código */}
+              {/* 1. Filtro: Código */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Código
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Código Interno
                 </label>
                 <input
                   type="text"
-                  placeholder="Código do produto..."
+                  placeholder="Ex: 130000..."
                   value={vendasCodigo}
                   onChange={(e) => setVendasCodigo(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 font-mono"
                 />
               </div>
 
-              {/* Filtro: Nome do Produto */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Nome do Produto
+              {/* 2. Filtro: Produtos (Busca Dinâmica com Autocomplete e Multi-seleção) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Produtos ({selectedProdutosVendas.length} selecionados)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Toner, Ventoinha, Cabo..."
-                  value={vendasNome}
-                  onChange={(e) => setVendasNome(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Digite o nome do produto..."
+                    value={inputProdutoVendas}
+                    onChange={(e) => setInputProdutoVendas(e.target.value)}
+                    onFocus={() => {
+                      if (sugestoesProdutosVendas.length > 0) setIsProdutosVendasOpen(true);
+                    }}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 pr-8"
+                  />
+                  {isBuscandoProdutosVendas && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-600 absolute right-2.5 top-2.5" />
+                  )}
+                </div>
+
+                {/* Dropdown de sugestões dinâmicas de produtos */}
+                {isProdutosVendasOpen && sugestoesProdutosVendas.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-60 overflow-y-auto p-1.5 space-y-1">
+                    <div className="flex items-center justify-between px-2 py-1 text-[10px] text-slate-400 font-bold border-b border-slate-100">
+                      <span>Clique para marcar/desmarcar produtos:</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsProdutosVendasOpen(false)}
+                        className="text-slate-500 hover:text-slate-800"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {sugestoesProdutosVendas.map((p) => {
+                      const isSelected = selectedProdutosVendas.some((sp) => sp.id === p.id);
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedProdutosVendas((prev) => prev.filter((sp) => sp.id !== p.id));
+                            } else {
+                              setSelectedProdutosVendas((prev) => [...prev, { id: p.id, codigo: p.codigo_interno, nome: p.nome }]);
+                            }
+                          }}
+                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs ${
+                            isSelected ? 'bg-cyan-50 border border-cyan-200 text-cyan-950 font-semibold' : 'hover:bg-slate-100 text-slate-800'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            readOnly
+                            className="w-3.5 h-3.5 rounded text-cyan-600 mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="font-mono text-[10px] text-cyan-800 font-bold block">
+                              Cód: {p.codigo_interno} &bull; {p.nome_grupo}
+                            </span>
+                            <span className="truncate block">{p.nome}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Filtro: Fornecedor */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Fornecedor
+              {/* 3. Filtro: Fornecedor (Seleção Múltipla dos Fornecedores do Gestão Click) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Fornecedor ({selectedFornecedoresVendas.length} selecionados)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Nome do fornecedor..."
-                  value={vendasFornecedor}
-                  onChange={(e) => setVendasFornecedor(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600"
-                />
-              </div>
-
-              {/* Filtro: Grupo do Produto */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Grupo do Produto
-                </label>
-                <select
-                  value={vendasGrupo}
-                  onChange={(e) => setVendasGrupo(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-cyan-600 font-medium"
+                <button
+                  type="button"
+                  onClick={() => setIsFornecedoresVendasOpen(!isFornecedoresVendasOpen)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
                 >
-                  <option value="">Todos os grupos</option>
-                  {grupos.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.nome}
-                    </option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {selectedFornecedoresVendas.length === 0
+                      ? 'Todos os fornecedores'
+                      : `${selectedFornecedoresVendas.length} fornecedores`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+                </button>
+
+                {/* Dropdown com Busca e Checkboxes de Fornecedores */}
+                {isFornecedoresVendasOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[280px]">
+                    <input
+                      type="text"
+                      placeholder="Pesquisar fornecedor..."
+                      value={buscaFornecedorVendas}
+                      onChange={(e) => setBuscaFornecedorVendas(e.target.value)}
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
+                    />
+
+                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFornecedoresVendas([])}
+                        className="hover:underline"
+                      >
+                        Desmarcar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsFornecedoresVendasOpen(false)}
+                        className="hover:underline"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {fornecedores
+                        .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorVendas.toLowerCase()))
+                        .map((f) => {
+                          const isChecked = selectedFornecedoresVendas.includes(f.nome);
+                          return (
+                            <label
+                              key={f.id}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => setSelectedFornecedoresVendas(toggleArrayItem(selectedFornecedoresVendas, f.nome))}
+                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                              />
+                              <span className="truncate">{f.nome}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Filtro: Data Inicial (mês vigente) */}
+              {/* 4. Filtro: Grupo do Produto (Seleção Múltipla) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Grupo do Produto ({selectedGruposVendas.length} selecionados)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsGruposVendasOpen(!isGruposVendasOpen)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
+                >
+                  <span className="truncate">
+                    {selectedGruposVendas.length === 0
+                      ? 'Todos os grupos'
+                      : `${selectedGruposVendas.length} grupos`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+                </button>
+
+                {/* Dropdown com Checkboxes de Grupos */}
+                {isGruposVendasOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[260px]">
+                    <input
+                      type="text"
+                      placeholder="Pesquisar grupo..."
+                      value={buscaGrupoVendas}
+                      onChange={(e) => setBuscaGrupoVendas(e.target.value)}
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
+                    />
+
+                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGruposVendas(grupos.map((g) => g.nome))}
+                        className="hover:underline"
+                      >
+                        Marcar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGruposVendas([])}
+                        className="hover:underline"
+                      >
+                        Desmarcar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsGruposVendasOpen(false)}
+                        className="hover:underline text-slate-500"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {grupos
+                        .filter((g) => g.nome.toLowerCase().includes(buscaGrupoVendas.toLowerCase()))
+                        .map((g) => {
+                          const isChecked = selectedGruposVendas.includes(g.nome);
+                          return (
+                            <label
+                              key={g.id}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => setSelectedGruposVendas(toggleArrayItem(selectedGruposVendas, g.nome))}
+                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                              />
+                              <span className="truncate">{g.nome}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 5. Filtro: Data Inicial (mês vigente) */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
                   Data Inicial (Saída)
                 </label>
                 <input
@@ -615,9 +881,9 @@ export default function PedidosPage() {
                 />
               </div>
 
-              {/* Filtro: Data Final (mês vigente) */}
+              {/* 6. Filtro: Data Final (mês vigente) */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
                   Data Final (Saída)
                 </label>
                 <input
@@ -628,6 +894,64 @@ export default function PedidosPage() {
                 />
               </div>
             </div>
+
+            {/* Tags dos Filtros Selecionados */}
+            {(selectedProdutosVendas.length > 0 || selectedGruposVendas.length > 0 || selectedFornecedoresVendas.length > 0) && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                <span className="text-[10px] font-bold text-slate-500 uppercase mr-1">Filtros Ativos:</span>
+                
+                {/* Tags de Produtos */}
+                {selectedProdutosVendas.map((p) => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-900 border border-cyan-300"
+                  >
+                    <span>Cód {p.codigo}: {p.nome.slice(0, 24)}...</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProdutosVendas(selectedProdutosVendas.filter((sp) => sp.id !== p.id))}
+                      className="text-cyan-700 hover:text-cyan-950 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+
+                {/* Tags de Grupos */}
+                {selectedGruposVendas.map((g) => (
+                  <span
+                    key={g}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300"
+                  >
+                    <span>Grupo: {g}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGruposVendas(selectedGruposVendas.filter((sg) => sg !== g))}
+                      className="text-slate-600 hover:text-slate-900 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+
+                {/* Tags de Fornecedores */}
+                {selectedFornecedoresVendas.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300"
+                  >
+                    <span>Forn: {f.slice(0, 20)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresVendas(selectedFornecedoresVendas.filter((sf) => sf !== f))}
+                      className="text-blue-700 hover:text-blue-950 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Botões de Ação da Pesquisa */}
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
@@ -650,9 +974,10 @@ export default function PedidosPage() {
                   type="button"
                   onClick={() => {
                     setVendasCodigo('');
-                    setVendasNome('');
-                    setVendasFornecedor('');
-                    setVendasGrupo('');
+                    setSelectedProdutosVendas([]);
+                    setInputProdutoVendas('');
+                    setSelectedFornecedoresVendas([]);
+                    setSelectedGruposVendas([]);
                   }}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                 >
@@ -686,7 +1011,7 @@ export default function PedidosPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-[#002B49] text-white sticky top-0 z-10 select-none">
                   <tr className="border-b border-blue-900 text-[11px]">
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap w-32">CÓDIGO</th>
+                    <th className="px-3 py-2.5 font-bold whitespace-nowrap w-36">CÓDIGO INTERNO</th>
                     <th className="px-3 py-2.5 font-bold">NOME DO PRODUTO</th>
                     <th className="px-3 py-2.5 font-bold">NOME DO FORNECEDOR</th>
                     <th className="px-3 py-2.5 font-bold whitespace-nowrap">GRUPO DO PRODUTO</th>
@@ -702,7 +1027,7 @@ export default function PedidosPage() {
                       <td colSpan={5} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-cyan-700" />
-                          <span className="font-semibold text-xs">Consultando vendas no Gestão Click ERP...</span>
+                          <span className="font-semibold text-xs">Consultando vendas e códigos internos reais no Gestão Click ERP...</span>
                         </div>
                       </td>
                     </tr>
@@ -714,7 +1039,6 @@ export default function PedidosPage() {
                     </tr>
                   ) : (
                     ultimasVendasList.map((item, idx) => {
-                      // Regra de estilo solicitada: intercalando com sombra cinza bem clara e o outro sem sombra
                       const isEven = idx % 2 === 0;
 
                       return (
@@ -726,7 +1050,7 @@ export default function PedidosPage() {
                               : 'bg-white border-b border-slate-200/50'
                           } hover:bg-cyan-50/60`}
                         >
-                          {/* 1. Código do produto */}
+                          {/* 1. Código interno do produto (conforme cadastro ERP) */}
                           <td className="px-3 py-2 font-mono font-bold text-[#002B49] whitespace-nowrap">
                             {item.codigo}
                           </td>
@@ -754,9 +1078,9 @@ export default function PedidosPage() {
                             )}
                           </td>
 
-                          {/* 4. Grupo do produto */}
+                          {/* 4. Grupo do produto (conforme cadastro no ERP) */}
                           <td className="px-3 py-2 whitespace-nowrap text-slate-600 font-medium">
-                            <span className="px-2 py-0.5 rounded bg-slate-200/70 text-slate-800 text-[11px]">
+                            <span className="px-2.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[11px] font-bold">
                               {item.nomeGrupo}
                             </span>
                           </td>
@@ -777,86 +1101,313 @@ export default function PedidosPage() {
       )}
 
       {/* ============================================================== */}
-      {/* MENU 2: MONTAR COTAÇÃO                                         */}
+      {/* MENU 2: MONTAR COTAÇÃO (COM MULTI-SELEÇÃO)                     */}
       {/* ============================================================== */}
       {activeTab === 'montar_cotacao' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           {/* Guia de Pesquisa para Montar Cotação */}
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-3">
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-[#002B49]" />
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Guia de Pesquisa &bull; Produtos para Cotação
+                  Guia de Pesquisa &bull; Produtos para Cotação (Múltipla Seleção)
                 </h2>
               </div>
               <span className="text-[11px] text-slate-500">
-                Filtre por qualquer combinação de campos
+                Selecione mais de um grupo, fornecedor e produtos simultaneamente
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-              {/* Filtro: Código */}
+              {/* 1. Código */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Código
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Código Interno
                 </label>
                 <input
                   type="text"
-                  placeholder="Código do produto..."
+                  placeholder="Ex: 130000..."
                   value={cotacaoCodigo}
                   onChange={(e) => setCotacaoCodigo(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 font-mono"
                 />
               </div>
 
-              {/* Filtro: Nome do Produto */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Nome do Produto
+              {/* 2. Produtos (Digitação Dinâmica com Autocomplete e Multi-seleção) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Produtos ({selectedProdutosCotacao.length} selecionados)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Nome do item..."
-                  value={cotacaoNome}
-                  onChange={(e) => setCotacaoNome(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Digite o nome do produto..."
+                    value={inputProdutoCotacao}
+                    onChange={(e) => setInputProdutoCotacao(e.target.value)}
+                    onFocus={() => {
+                      if (sugestoesProdutosCotacao.length > 0) setIsProdutosCotacaoOpen(true);
+                    }}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600 pr-8"
+                  />
+                  {isBuscandoProdutosCotacao && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-600 absolute right-2.5 top-2.5" />
+                  )}
+                </div>
+
+                {isProdutosCotacaoOpen && sugestoesProdutosCotacao.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-60 overflow-y-auto p-1.5 space-y-1">
+                    <div className="flex items-center justify-between px-2 py-1 text-[10px] text-slate-400 font-bold border-b border-slate-100">
+                      <span>Clique para marcar/desmarcar produtos:</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsProdutosCotacaoOpen(false)}
+                        className="text-slate-500 hover:text-slate-800"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {sugestoesProdutosCotacao.map((p) => {
+                      const isSelected = selectedProdutosCotacao.some((sp) => sp.id === p.id);
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedProdutosCotacao((prev) => prev.filter((sp) => sp.id !== p.id));
+                            } else {
+                              setSelectedProdutosCotacao((prev) => [...prev, { id: p.id, codigo: p.codigo_interno, nome: p.nome }]);
+                            }
+                          }}
+                          className={`p-2 rounded-lg cursor-pointer transition flex items-start gap-2 text-xs ${
+                            isSelected ? 'bg-amber-50 border border-amber-200 text-amber-950 font-semibold' : 'hover:bg-slate-100 text-slate-800'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            readOnly
+                            className="w-3.5 h-3.5 rounded text-amber-600 mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="font-mono text-[10px] text-amber-800 font-bold block">
+                              Cód: {p.codigo_interno} &bull; {p.nome_grupo}
+                            </span>
+                            <span className="truncate block">{p.nome}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Filtro: Fornecedor */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Fornecedor
+              {/* 3. Fornecedor (Multi-seleção dos Fornecedores do Gestão) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Fornecedor ({selectedFornecedoresCotacao.length} selecionados)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Fornecedor habitual..."
-                  value={cotacaoFornecedor}
-                  onChange={(e) => setCotacaoFornecedor(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-cyan-600"
-                />
-              </div>
-
-              {/* Filtro: Grupo do Produto */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase">
-                  Grupo do Produto
-                </label>
-                <select
-                  value={cotacaoGrupo}
-                  onChange={(e) => setCotacaoGrupo(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-cyan-600 font-medium"
+                <button
+                  type="button"
+                  onClick={() => setIsFornecedoresCotacaoOpen(!isFornecedoresCotacaoOpen)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
                 >
-                  <option value="">Todos os grupos</option>
-                  {grupos.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.nome}
-                    </option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {selectedFornecedoresCotacao.length === 0
+                      ? 'Todos os fornecedores'
+                      : `${selectedFornecedoresCotacao.length} fornecedores`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+                </button>
+
+                {isFornecedoresCotacaoOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[280px]">
+                    <input
+                      type="text"
+                      placeholder="Pesquisar fornecedor..."
+                      value={buscaFornecedorCotacao}
+                      onChange={(e) => setBuscaFornecedorCotacao(e.target.value)}
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
+                    />
+
+                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFornecedoresCotacao([])}
+                        className="hover:underline"
+                      >
+                        Desmarcar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsFornecedoresCotacaoOpen(false)}
+                        className="hover:underline"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {fornecedores
+                        .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorCotacao.toLowerCase()))
+                        .map((f) => {
+                          const isChecked = selectedFornecedoresCotacao.includes(f.nome);
+                          return (
+                            <label
+                              key={f.id}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => setSelectedFornecedoresCotacao(toggleArrayItem(selectedFornecedoresCotacao, f.nome))}
+                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                              />
+                              <span className="truncate">{f.nome}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Grupo do Produto (Multi-seleção) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Grupo do Produto ({selectedGruposCotacao.length} selecionados)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsGruposCotacaoOpen(!isGruposCotacaoOpen)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-left flex items-center justify-between focus:outline-none focus:border-cyan-600 font-medium"
+                >
+                  <span className="truncate">
+                    {selectedGruposCotacao.length === 0
+                      ? 'Todos os grupos'
+                      : `${selectedGruposCotacao.length} grupos`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+                </button>
+
+                {isGruposCotacaoOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 min-w-[260px]">
+                    <input
+                      type="text"
+                      placeholder="Pesquisar grupo..."
+                      value={buscaGrupoCotacao}
+                      onChange={(e) => setBuscaGrupoCotacao(e.target.value)}
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:border-cyan-600"
+                    />
+
+                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGruposCotacao(grupos.map((g) => g.nome))}
+                        className="hover:underline"
+                      >
+                        Marcar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGruposCotacao([])}
+                        className="hover:underline"
+                      >
+                        Desmarcar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsGruposCotacaoOpen(false)}
+                        className="hover:underline text-slate-500"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {grupos
+                        .filter((g) => g.nome.toLowerCase().includes(buscaGrupoCotacao.toLowerCase()))
+                        .map((g) => {
+                          const isChecked = selectedGruposCotacao.includes(g.nome);
+                          return (
+                            <label
+                              key={g.id}
+                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs ${
+                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => setSelectedGruposCotacao(toggleArrayItem(selectedGruposCotacao, g.nome))}
+                                className="w-3.5 h-3.5 rounded text-cyan-600"
+                              />
+                              <span className="truncate">{g.nome}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Tags dos Filtros Selecionados em Montar Cotação */}
+            {(selectedProdutosCotacao.length > 0 || selectedGruposCotacao.length > 0 || selectedFornecedoresCotacao.length > 0) && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                <span className="text-[10px] font-bold text-slate-500 uppercase mr-1">Filtros Ativos:</span>
+                
+                {selectedProdutosCotacao.map((p) => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                  >
+                    <span>Cód {p.codigo}: {p.nome.slice(0, 24)}...</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProdutosCotacao(selectedProdutosCotacao.filter((sp) => sp.id !== p.id))}
+                      className="text-amber-700 hover:text-amber-950 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+
+                {selectedGruposCotacao.map((g) => (
+                  <span
+                    key={g}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300"
+                  >
+                    <span>Grupo: {g}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGruposCotacao(selectedGruposCotacao.filter((sg) => sg !== g))}
+                      className="text-slate-600 hover:text-slate-900 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+
+                {selectedFornecedoresCotacao.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300"
+                  >
+                    <span>Forn: {f.slice(0, 20)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresCotacao(selectedFornecedoresCotacao.filter((sf) => sf !== f))}
+                      className="text-blue-700 hover:text-blue-950 font-black ml-0.5"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Linha de Dados da Cotação: Fornecedor Destinatário e Observações */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
@@ -908,9 +1459,10 @@ export default function PedidosPage() {
                   type="button"
                   onClick={() => {
                     setCotacaoCodigo('');
-                    setCotacaoNome('');
-                    setCotacaoFornecedor('');
-                    setCotacaoGrupo('');
+                    setSelectedProdutosCotacao([]);
+                    setInputProdutoCotacao('');
+                    setSelectedFornecedoresCotacao([]);
+                    setSelectedGruposCotacao([]);
                   }}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                 >
@@ -976,7 +1528,7 @@ export default function PedidosPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-[#002B49] text-white sticky top-0 z-10 select-none">
                   <tr className="border-b border-blue-900 text-[10px]">
-                    <th className="px-2.5 py-2 font-bold whitespace-nowrap">CÓDIGO</th>
+                    <th className="px-2.5 py-2 font-bold whitespace-nowrap">CÓDIGO INTERNO</th>
                     <th className="px-3 py-2 font-bold min-w-[200px]">NOME DO PRODUTO</th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap">ESTOQUE</th>
                     <th className="px-2 py-2 font-bold text-center whitespace-nowrap bg-blue-950">QTD MÍNIMA</th>
@@ -1001,7 +1553,7 @@ export default function PedidosPage() {
                       <td colSpan={12} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-cyan-700" />
-                          <span className="font-semibold text-xs">Carregando catálogo de produtos e compras...</span>
+                          <span className="font-semibold text-xs">Carregando catálogo de produtos com códigos internos...</span>
                         </div>
                       </td>
                     </tr>
@@ -1032,7 +1584,7 @@ export default function PedidosPage() {
                               : 'bg-white border-b border-slate-200/50'
                           } hover:bg-amber-100/40`}
                         >
-                          {/* 1. Código */}
+                          {/* 1. Código interno do produto */}
                           <td className="px-2.5 py-1.5 font-mono font-bold text-[#002B49] whitespace-nowrap">
                             {item.codigo}
                           </td>
@@ -1040,7 +1592,7 @@ export default function PedidosPage() {
                           {/* 2. Nome do Produto */}
                           <td className="px-3 py-1.5">
                             <span className="font-semibold text-slate-900 block">{item.nome}</span>
-                            <span className="text-[10px] text-slate-400 block">{item.nomeGrupo}</span>
+                            <span className="text-[10px] text-slate-400 block font-medium">{item.nomeGrupo}</span>
                           </td>
 
                           {/* 3. Estoque Atual */}
@@ -1417,7 +1969,7 @@ export default function PedidosPage() {
                     <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
                       <tr>
                         <th className="p-2 w-12 text-center">Item</th>
-                        <th className="p-2 w-28">Código</th>
+                        <th className="p-2 w-32">Código Interno</th>
                         <th className="p-2">Descrição do Produto</th>
                         <th className="p-2 text-center w-24">Qtd Pedida</th>
                         <th className="p-2 text-right w-28">Valor Unit. (R$)</th>

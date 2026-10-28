@@ -56,9 +56,14 @@ export async function getGruposProdutos() {
   return [];
 }
 
-// 2. Fornecedores
-export async function getFornecedores() {
-  const res = await fetchGestaoApi('/fornecedores?limite=100');
+// 2. Fornecedores com busca opcional
+export async function getFornecedores(termo?: string) {
+  let endpoint = '/fornecedores?limite=100';
+  if (termo && termo.trim()) {
+    endpoint = `/fornecedores?nome=${encodeURIComponent(termo.trim())}&limite=50`;
+  }
+
+  const res = await fetchGestaoApi(endpoint);
   if (res.ok && res.data?.data) {
     return res.data.data.map((f: any) => ({
       id: String(f.id),
@@ -71,7 +76,6 @@ export async function getFornecedores() {
 
 // 3. Vendas do Período com itens
 export async function getVendasPeriodo(dataInicio: string, dataFim: string) {
-  // Buscar até 200 vendas do período
   const res = await fetchGestaoApi(`/vendas?data_inicio=${dataInicio}&data_fim=${dataFim}&limite=100`);
   if (!res.ok || !res.data?.data) {
     return [];
@@ -119,7 +123,6 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
   }>();
 
   try {
-    // Buscar as 80 compras mais recentes
     const res = await fetchGestaoApi('/compras?limite=80');
     if (res.ok && res.data?.data) {
       for (const item of res.data.data) {
@@ -145,13 +148,11 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
                 fornecedores: nomeFornecedor ? [nomeFornecedor] : [],
               });
             } else {
-              // Se esta compra for mais recente do que a que já temos registrada
               if (dataEmissao > existing.dataUltimaCompra) {
                 existing.dataUltimaCompra = dataEmissao;
                 existing.quantidadeUltimaCompra = qtd;
                 existing.valorUltimaCompra = valorCusto;
               }
-              // Adiciona fornecedor na lista se ainda não estiver
               if (nomeFornecedor && !existing.fornecedores.includes(nomeFornecedor)) {
                 existing.fornecedores.push(nomeFornecedor);
               }
@@ -172,10 +173,124 @@ export async function getPurchasesProductIndex(forceRefresh = false) {
   return map;
 }
 
-// 5. Produtos do Gestão Click
-export async function getProdutosGestao(limite = 100, pagina = 1) {
-  const res = await fetchGestaoApi(`/produtos?limite=${limite}&pagina=${pagina}`);
+// 5. Cache e Detalhes de Produtos (para sempre trazer codigo_interno e nome_grupo reais)
+const productDetailsCache = new Map<string, {
+  id: string;
+  codigo_interno: string;
+  codigo_barra: string;
+  nome: string;
+  grupo_id: string;
+  nome_grupo: string;
+  estoque: number;
+  valor_custo: number;
+}>();
+
+export async function getProductDetails(produtoId: string) {
+  const cached = productDetailsCache.get(String(produtoId));
+  if (cached) return cached;
+
+  try {
+    const res = await fetchGestaoApi(`/produtos/${produtoId}`);
+    if (res.ok && res.data?.data) {
+      const p = res.data.data;
+      const details = {
+        id: String(p.id),
+        codigo_interno: p.codigo_interno || String(p.id),
+        codigo_barra: p.codigo_barra || '',
+        nome: p.nome || '',
+        grupo_id: String(p.grupo_id || ''),
+        nome_grupo: p.nome_grupo || 'Diversos',
+        estoque: parseFloat(p.estoque) || 0,
+        valor_custo: parseFloat(p.valor_custo) || 0,
+      };
+      productDetailsCache.set(String(produtoId), details);
+      return details;
+    }
+  } catch (e) {
+    console.error(`Erro ao buscar produto ${produtoId}:`, e);
+  }
+
+  return null;
+}
+
+// Busca em lote de detalhes de produtos para evitar gargalo
+export async function getProductDetailsBatch(produtoIds: string[]) {
+  const result = new Map<string, any>();
+  const toFetch: string[] = [];
+
+  for (const id of produtoIds) {
+    const cached = productDetailsCache.get(String(id));
+    if (cached) {
+      result.set(String(id), cached);
+    } else {
+      toFetch.push(String(id));
+    }
+  }
+
+  // Buscar em blocos de até 12 requisições paralelas
+  const chunkSize = 12;
+  for (let i = 0; i < toFetch.length; i += chunkSize) {
+    const chunk = toFetch.slice(i, i + chunkSize);
+    const promises = chunk.map(async (id) => {
+      const details = await getProductDetails(id);
+      if (details) result.set(id, details);
+    });
+    await Promise.all(promises);
+  }
+
+  return result;
+}
+
+// 6. Busca Dinâmica de Produtos por Nome ou Código (Autocomplete / Multi-select)
+export async function searchProdutosGestao(termo: string, limite = 30) {
+  if (!termo || termo.trim().length < 2) return [];
+
+  const cleanTerm = termo.trim();
+  const res = await fetchGestaoApi(`/produtos?busca=${encodeURIComponent(cleanTerm)}&limite=${limite}`);
+  
   if (res.ok && res.data?.data) {
+    return res.data.data.map((p: any) => {
+      const details = {
+        id: String(p.id),
+        codigo_interno: p.codigo_interno || String(p.id),
+        codigo_barra: p.codigo_barra || '',
+        nome: p.nome,
+        grupo_id: String(p.grupo_id || ''),
+        nome_grupo: p.nome_grupo || 'Diversos',
+        estoque: parseFloat(p.estoque) || 0,
+        valor_custo: parseFloat(p.valor_custo) || 0,
+      };
+      // Guarda em cache
+      productDetailsCache.set(String(p.id), details);
+      return details;
+    });
+  }
+
+  return [];
+}
+
+// 7. Produtos paginados / filtrados para Montar Cotação
+export async function getProdutosGestao(limite = 100, pagina = 1, options: { grupoId?: string; busca?: string } = {}) {
+  let endpoint = `/produtos?limite=${limite}&pagina=${pagina}`;
+  if (options.grupoId) endpoint += `&grupo_id=${encodeURIComponent(options.grupoId)}`;
+  if (options.busca) endpoint += `&busca=${encodeURIComponent(options.busca)}`;
+
+  const res = await fetchGestaoApi(endpoint);
+  if (res.ok && res.data?.data) {
+    // Guarda os produtos retornados no cache
+    for (const p of res.data.data) {
+      productDetailsCache.set(String(p.id), {
+        id: String(p.id),
+        codigo_interno: p.codigo_interno || String(p.id),
+        codigo_barra: p.codigo_barra || '',
+        nome: p.nome,
+        grupo_id: String(p.grupo_id || ''),
+        nome_grupo: p.nome_grupo || 'Diversos',
+        estoque: parseFloat(p.estoque) || 0,
+        valor_custo: parseFloat(p.valor_custo) || 0,
+      });
+    }
+
     return {
       produtos: res.data.data,
       meta: res.data.meta,

@@ -6,12 +6,32 @@ import {
   getVendasPeriodo,
   getPurchasesProductIndex,
   getProdutosGestao,
+  getProductDetailsBatch,
+  searchProdutosGestao,
 } from '@/lib/gestao';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'ultimas_vendas';
+
+    // ================================================================
+    // AÇÃO 0: BUSCA DINÂMICA DE PRODUTOS (Para o campo Produtos digitável)
+    // ================================================================
+    if (action === 'buscar_produtos') {
+      const termo = searchParams.get('termo') || '';
+      const produtos = await searchProdutosGestao(termo, 30);
+      return NextResponse.json({ produtos });
+    }
+
+    // ================================================================
+    // AÇÃO 0.1: BUSCA DE FORNECEDORES DO GESTÃO CLICK
+    // ================================================================
+    if (action === 'fornecedores') {
+      const termo = searchParams.get('termo') || '';
+      const fornecedores = await getFornecedores(termo);
+      return NextResponse.json({ fornecedores });
+    }
 
     // ================================================================
     // AÇÃO 1: CONFIG (Grupos e Fornecedores para os filtros de busca)
@@ -47,24 +67,46 @@ export async function GET(request: Request) {
       const dataInicio = searchParams.get('data_inicio') || defaultDataInicio;
       const dataFim = searchParams.get('data_fim') || defaultDataFim;
       const filtroCodigo = (searchParams.get('codigo') || '').trim().toLowerCase();
-      const filtroNome = (searchParams.get('nome') || '').trim().toLowerCase();
-      const filtroFornecedor = (searchParams.get('fornecedor') || '').trim().toLowerCase();
-      const filtroGrupo = (searchParams.get('grupo_id') || '').trim();
 
-      // 1. Buscar vendas e indexar compras para obter fornecedores
-      const [vendas, purchasesMap, prodResult] = await Promise.all([
+      // Múltiplos grupos (separados por vírgula)
+      const gruposParam = searchParams.get('grupos') || searchParams.get('grupo_id') || '';
+      const filtroGrupos = gruposParam
+        ? gruposParam.split(',').map((g) => g.trim().toLowerCase()).filter(Boolean)
+        : [];
+
+      // Múltiplos fornecedores (separados por vírgula)
+      const fornecedoresParam = searchParams.get('fornecedores') || searchParams.get('fornecedor') || '';
+      const filtroFornecedores = fornecedoresParam
+        ? fornecedoresParam.split(',').map((f) => f.trim().toLowerCase()).filter(Boolean)
+        : [];
+
+      // Múltiplos produtos selecionados (IDs separados por vírgula)
+      const produtosParam = searchParams.get('produtos') || '';
+      const filtroProdutoIds = produtosParam
+        ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
+        : [];
+
+      // 1. Buscar vendas e compras em paralelo
+      const [vendas, purchasesMap] = await Promise.all([
         getVendasPeriodo(dataInicio, dataFim),
         getPurchasesProductIndex(),
-        getProdutosGestao(100, 1),
       ]);
 
-      // Mapear produtos base por ID para enriquecer código, grupo etc.
-      const productLookup = new Map<string, any>();
-      for (const p of prodResult.produtos) {
-        productLookup.set(String(p.id), p);
+      // 2. Extrair todos os IDs únicos de produtos vendidos para buscar os dados cadastrais reais
+      const uniqueProductIds = new Set<string>();
+      for (const venda of vendas) {
+        if (!Array.isArray(venda.produtos)) continue;
+        for (const item of venda.produtos) {
+          const p = item.produto || item;
+          const pId = String(p.produto_id || p.id);
+          if (pId) uniqueProductIds.add(pId);
+        }
       }
 
-      // 2. Consolidar quantidade vendida por produto no período
+      // 3. Buscar os detalhes completos de cada produto vendido (garante codigo_interno e nome_grupo reais)
+      const productsMap = await getProductDetailsBatch(Array.from(uniqueProductIds));
+
+      // 4. Consolidar quantidade vendida por produto no período
       const salesMap = new Map<string, {
         produtoId: string;
         codigo: string;
@@ -84,7 +126,7 @@ export async function GET(request: Request) {
           if (!pId) continue;
 
           const qtd = parseFloat(p.quantidade) || 0;
-          const prodBase = productLookup.get(pId);
+          const prodDetails = productsMap.get(pId);
           const purchaseInfo = purchasesMap.get(pId);
 
           const existing = salesMap.get(pId);
@@ -93,12 +135,13 @@ export async function GET(request: Request) {
               ? purchaseInfo.fornecedores
               : [];
 
+            // Utiliza o codigo_interno real (ex: "130000") e nome_grupo real (ex: "Suprimentos")
             salesMap.set(pId, {
               produtoId: pId,
-              codigo: prodBase?.codigo_interno || p.codigo_interno || p.codigo || pId,
-              nome: prodBase?.nome || p.nome_produto || p.nome || 'Produto sem nome',
-              grupoId: String(prodBase?.grupo_id || ''),
-              nomeGrupo: prodBase?.nome_grupo || 'Diversos',
+              codigo: prodDetails?.codigo_interno || p.codigo_interno || p.codigo || pId,
+              nome: prodDetails?.nome || p.nome_produto || p.nome || 'Produto sem nome',
+              grupoId: String(prodDetails?.grupo_id || ''),
+              nomeGrupo: prodDetails?.nome_grupo || 'Diversos',
               fornecedores: suppliers,
               quantidadeVendida: qtd,
             });
@@ -110,23 +153,33 @@ export async function GET(request: Request) {
 
       let lista = Array.from(salesMap.values());
 
-      // 3. Aplicar filtros combinados
+      // 5. Aplicar filtros combinados com suporte à seleção múltipla
       if (filtroCodigo) {
         lista = lista.filter((item) =>
           item.codigo.toLowerCase().includes(filtroCodigo)
         );
       }
-      if (filtroNome) {
-        lista = lista.filter((item) =>
-          item.nome.toLowerCase().includes(filtroNome)
-        );
+
+      // Filtro por múltiplos produtos selecionados
+      if (filtroProdutoIds.length > 0) {
+        lista = lista.filter((item) => filtroProdutoIds.includes(item.produtoId));
       }
-      if (filtroGrupo) {
-        lista = lista.filter((item) => item.grupoId === filtroGrupo);
+
+      // Filtro por múltiplos grupos selecionados
+      if (filtroGrupos.length > 0) {
+        lista = lista.filter((item) => {
+          const gId = item.grupoId.toLowerCase();
+          const gName = item.nomeGrupo.toLowerCase();
+          return filtroGrupos.some((fg) => fg === gId || gName.includes(fg));
+        });
       }
-      if (filtroFornecedor) {
+
+      // Filtro por múltiplos fornecedores selecionados
+      if (filtroFornecedores.length > 0) {
         lista = lista.filter((item) =>
-          item.fornecedores.some((f) => f.toLowerCase().includes(filtroFornecedor))
+          item.fornecedores.some((f) =>
+            filtroFornecedores.some((ff) => f.toLowerCase().includes(ff))
+          )
         );
       }
 
@@ -146,13 +199,42 @@ export async function GET(request: Request) {
     // ================================================================
     if (action === 'montar_cotacao') {
       const filtroCodigo = (searchParams.get('codigo') || '').trim().toLowerCase();
-      const filtroNome = (searchParams.get('nome') || '').trim().toLowerCase();
-      const filtroFornecedor = (searchParams.get('fornecedor') || '').trim().toLowerCase();
-      const filtroGrupo = (searchParams.get('grupo_id') || '').trim();
+      const filtroBusca = (searchParams.get('busca') || searchParams.get('nome') || '').trim();
 
-      // Buscar produtos do Gestão Click, limites salvos no banco local e histórico de compras
-      const [prodResult, limits, purchasesMap] = await Promise.all([
-        getProdutosGestao(100, 1),
+      // Múltiplos grupos selecionados
+      const gruposParam = searchParams.get('grupos') || searchParams.get('grupo_id') || '';
+      const filtroGrupos = gruposParam
+        ? gruposParam.split(',').map((g) => g.trim().toLowerCase()).filter(Boolean)
+        : [];
+
+      // Múltiplos fornecedores selecionados
+      const fornecedoresParam = searchParams.get('fornecedores') || searchParams.get('fornecedor') || '';
+      const filtroFornecedores = fornecedoresParam
+        ? fornecedoresParam.split(',').map((f) => f.trim().toLowerCase()).filter(Boolean)
+        : [];
+
+      // Múltiplos produtos selecionados por ID
+      const produtosParam = searchParams.get('produtos') || '';
+      const filtroProdutoIds = produtosParam
+        ? produtosParam.split(',').map((p) => p.trim()).filter(Boolean)
+        : [];
+
+      // Se o usuário selecionou produtos específicos no seletor de produtos, busca esses produtos diretamente
+      let rawProducts: any[] = [];
+      if (filtroProdutoIds.length > 0) {
+        const batchMap = await getProductDetailsBatch(filtroProdutoIds);
+        rawProducts = Array.from(batchMap.values());
+      } else {
+        // Se houver busca de texto ou grupo específico
+        const prodResult = await getProdutosGestao(100, 1, {
+          busca: filtroBusca || filtroCodigo || undefined,
+          grupoId: filtroGrupos.length === 1 ? filtroGrupos[0] : undefined,
+        });
+        rawProducts = prodResult.produtos;
+      }
+
+      // Buscar limites locais salvos e histórico de compras
+      const [limits, purchasesMap] = await Promise.all([
         prisma.productStockLimit.findMany(),
         getPurchasesProductIndex(),
       ]);
@@ -162,7 +244,7 @@ export async function GET(request: Request) {
         limitsMap.set(l.produtoId, l);
       }
 
-      let lista = prodResult.produtos.map((p: any) => {
+      let lista = rawProducts.map((p: any) => {
         const pId = String(p.id);
         const limit = limitsMap.get(pId);
         const purchase = purchasesMap.get(pId);
@@ -182,24 +264,31 @@ export async function GET(request: Request) {
           dataUltimaCompra: purchase?.dataUltimaCompra || null,
           quantidadeUltimaCompra: purchase?.quantidadeUltimaCompra ?? null,
           valorUltimaCompra: valorUltima,
-          valorCotacao: valorUltima, // Inicializa com o valor da última compra, mas editável pelo usuário
-          quantidadePedida: '', // Vem em branco para digitação do usuário
+          valorCotacao: valorUltima,
+          quantidadePedida: '',
         };
       });
 
-      // Aplicar filtros
+      // Aplicar filtros de código
       if (filtroCodigo) {
         lista = lista.filter((item: any) => item.codigo.toLowerCase().includes(filtroCodigo));
       }
-      if (filtroNome) {
-        lista = lista.filter((item: any) => item.nome.toLowerCase().includes(filtroNome));
+
+      // Aplicar filtro de múltiplos grupos
+      if (filtroGrupos.length > 0) {
+        lista = lista.filter((item: any) => {
+          const gId = item.grupoId.toLowerCase();
+          const gName = item.nomeGrupo.toLowerCase();
+          return filtroGrupos.some((fg: string) => fg === gId || gName.includes(fg));
+        });
       }
-      if (filtroGrupo) {
-        lista = lista.filter((item: any) => item.grupoId === filtroGrupo);
-      }
-      if (filtroFornecedor) {
+
+      // Aplicar filtro de múltiplos fornecedores
+      if (filtroFornecedores.length > 0) {
         lista = lista.filter((item: any) =>
-          item.fornecedores.some((f: string) => f.toLowerCase().includes(filtroFornecedor))
+          item.fornecedores.some((f: string) =>
+            filtroFornecedores.some((ff: string) => f.toLowerCase().includes(ff))
+          )
         );
       }
 

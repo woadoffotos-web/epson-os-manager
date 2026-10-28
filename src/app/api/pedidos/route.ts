@@ -10,6 +10,9 @@ import {
   searchProdutosGestao,
 } from '@/lib/gestao';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -131,9 +134,10 @@ export async function GET(request: Request) {
 
           const existing = salesMap.get(pId);
           if (!existing) {
-            const suppliers = purchaseInfo?.fornecedores?.length
-              ? purchaseInfo.fornecedores
-              : [];
+            // Prioriza e une fornecedores vinculados no cadastro do produto (Gestão Click) com compras
+            const registeredSuppliers: string[] = Array.isArray(prodDetails?.fornecedores) ? prodDetails.fornecedores : [];
+            const purchaseSuppliers: string[] = Array.isArray(purchaseInfo?.fornecedores) ? purchaseInfo.fornecedores : [];
+            const combinedSuppliers = Array.from(new Set([...registeredSuppliers, ...purchaseSuppliers]));
 
             // Utiliza o codigo_interno real (ex: "130000") e nome_grupo real (ex: "Suprimentos")
             salesMap.set(pId, {
@@ -142,7 +146,7 @@ export async function GET(request: Request) {
               nome: prodDetails?.nome || p.nome_produto || p.nome || 'Produto sem nome',
               grupoId: String(prodDetails?.grupo_id || ''),
               nomeGrupo: prodDetails?.nome_grupo || 'Diversos',
-              fornecedores: suppliers,
+              fornecedores: combinedSuppliers,
               quantidadeVendida: qtd,
             });
           } else {
@@ -244,20 +248,28 @@ export async function GET(request: Request) {
         limitsMap.set(l.produtoId, l);
       }
 
+      // Buscar detalhes e fornecedores reais vinculados ao cadastro do produto
+      const catalogMap = await getProductDetailsBatch(rawProducts.map((p: any) => String(p.id)));
+
       let lista = rawProducts.map((p: any) => {
         const pId = String(p.id);
         const limit = limitsMap.get(pId);
         const purchase = purchasesMap.get(pId);
+        const prodDetails = catalogMap.get(pId);
 
         const valorUltima = purchase?.valorUltimaCompra || parseFloat(p.valor_custo) || 0;
 
+        const registeredSuppliers: string[] = Array.isArray(prodDetails?.fornecedores) ? prodDetails.fornecedores : [];
+        const purchaseSuppliers: string[] = Array.isArray(purchase?.fornecedores) ? purchase.fornecedores : [];
+        const combinedSuppliers = Array.from(new Set([...registeredSuppliers, ...purchaseSuppliers]));
+
         return {
           produtoId: pId,
-          codigo: p.codigo_interno || p.codigo_barra || pId,
-          nome: p.nome,
-          grupoId: String(p.grupo_id || ''),
-          nomeGrupo: p.nome_grupo || 'Diversos',
-          fornecedores: purchase?.fornecedores?.length ? purchase.fornecedores : [],
+          codigo: prodDetails?.codigo_interno || p.codigo_interno || p.codigo_barra || pId,
+          nome: prodDetails?.nome || p.nome,
+          grupoId: String(prodDetails?.grupo_id || p.grupo_id || ''),
+          nomeGrupo: prodDetails?.nome_grupo || p.nome_grupo || 'Diversos',
+          fornecedores: combinedSuppliers,
           estoqueAtual: parseFloat(p.estoque) || 0,
           estoqueMinimo: limit?.estoqueMinimo ?? 0,
           estoqueMaximo: limit?.estoqueMaximo ?? 0,

@@ -330,3 +330,20 @@ model ProductQuotation {
   updatedAt       DateTime @updatedAt
 }
 
+model ProductCatalogCache {
+  produtoId     String   @id
+  codigoInterno String?
+  nome          String?
+  grupoId       String?
+  nomeGrupo     String?
+  fornecedores  String   @default("[]") // JSON com array de nomes dos fornecedores vinculados no produto
+  estoque       Float    @default(0)
+  valorCusto    Float    @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([codigoInterno])
+  @@index([nomeGrupo])
+}
+
+

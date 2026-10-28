@@ -37,7 +37,7 @@ export default function PedidosPage() {
 
   // Configurações globais (Grupos e Fornecedores cadastrados no Gestão Click)
   const [grupos, setGrupos] = useState<{ id: string; nome: string }[]>([]);
-  const [fornecedores, setFornecedores] = useState<{ id: string; nome: string; documento: string }[]>([]);
+  const [fornecedores, setFornecedores] = useState<{ id: string; nome: string; razaoSocial?: string; documento: string }[]>([]);
 
   // ====================================================================
   // ESTADOS DE FILTRO COMPARTILHADOS (SELEÇÃO MÚLTIPLA)
@@ -755,53 +755,90 @@ export default function PedidosPage() {
 
                 {/* Dropdown com Busca e Checkboxes de Fornecedores */}
                 {isFornecedoresVendasOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[300px]">
-                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
-                      <span>{fornecedores.filter((f) => f.nome.toLowerCase().includes(buscaFornecedorVendas.toLowerCase())).length} fornecedores</span>
-                      <div className="flex items-center gap-2">
-                        {selectedFornecedoresVendas.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedFornecedoresVendas([])}
-                            className="hover:underline text-rose-600"
-                          >
-                            Desmarcar todos
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setIsFornecedoresVendasOpen(false)}
-                          className="hover:underline text-slate-500 font-bold"
-                        >
-                          ✕ Fechar
-                        </button>
-                      </div>
-                    </div>
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[320px] md:min-w-[360px]">
+                    {(() => {
+                      const termo = buscaFornecedorVendas.trim().toLowerCase();
+                      const filtrados = fornecedores.filter((f) => {
+                        if (!termo) return true;
+                        return (
+                          f.nome.toLowerCase().includes(termo) ||
+                          (f.razaoSocial && f.razaoSocial.toLowerCase().includes(termo)) ||
+                          (f.documento && f.documento.includes(termo))
+                        );
+                      });
 
-                    <div className="max-h-56 overflow-y-auto space-y-1">
-                      {fornecedores
-                        .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorVendas.toLowerCase()))
-                        .map((f) => {
-                          const isChecked = selectedFornecedoresVendas.includes(f.nome);
-                          return (
-                            <label
-                              key={f.id}
-                              title={f.nome}
-                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
-                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200' : 'hover:bg-slate-50 text-slate-700'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => setSelectedFornecedoresVendas(toggleArrayItem(selectedFornecedoresVendas, f.nome))}
-                                className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0"
-                              />
-                              <span className="break-words leading-tight flex-1">{f.nome}</span>
-                            </label>
-                          );
-                        })}
-                    </div>
+                      return (
+                        <>
+                          <div className="flex items-center justify-between text-[10px] text-cyan-800 px-1 font-bold border-b border-slate-100 pb-1.5">
+                            <span>
+                              {termo
+                                ? `${filtrados.length} de ${fornecedores.length} fornecedores`
+                                : `${fornecedores.length} fornecedores no Gestão Click`}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {selectedFornecedoresVendas.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedFornecedoresVendas([])}
+                                  className="hover:underline text-rose-600 font-semibold"
+                                >
+                                  Desmarcar todos
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setIsFornecedoresVendasOpen(false)}
+                                className="hover:underline text-slate-500 font-bold"
+                              >
+                                ✕ Fechar
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="max-h-60 overflow-y-auto space-y-1">
+                            {filtrados.length === 0 ? (
+                              <div className="py-4 text-center text-slate-400 text-xs">
+                                Nenhum fornecedor encontrado para "{buscaFornecedorVendas}".
+                              </div>
+                            ) : (
+                              filtrados.map((f) => {
+                                const isChecked = selectedFornecedoresVendas.includes(f.nome);
+                                return (
+                                  <label
+                                    key={f.id}
+                                    title={f.razaoSocial ? `${f.nome} (${f.razaoSocial})` : f.nome}
+                                    className={`flex items-start gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
+                                      isChecked
+                                        ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200'
+                                        : 'hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() =>
+                                        setSelectedFornecedoresVendas(
+                                          toggleArrayItem(selectedFornecedoresVendas, f.nome)
+                                        )
+                                      }
+                                      className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0 mt-0.5"
+                                    />
+                                    <div className="flex flex-col flex-1 min-w-0">
+                                      <span className="break-words leading-tight">{f.nome}</span>
+                                      {f.razaoSocial && f.razaoSocial !== f.nome && (
+                                        <span className="text-[10px] text-slate-400 font-normal truncate mt-0.5">
+                                          {f.razaoSocial}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1263,53 +1300,90 @@ export default function PedidosPage() {
                 </div>
 
                 {isFornecedoresCotacaoOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[300px]">
-                    <div className="flex items-center justify-between text-[10px] text-cyan-700 px-1 font-semibold">
-                      <span>{fornecedores.filter((f) => f.nome.toLowerCase().includes(buscaFornecedorCotacao.toLowerCase())).length} fornecedores</span>
-                      <div className="flex items-center gap-2">
-                        {selectedFornecedoresCotacao.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedFornecedoresCotacao([])}
-                            className="hover:underline text-rose-600"
-                          >
-                            Desmarcar todos
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setIsFornecedoresCotacaoOpen(false)}
-                          className="hover:underline text-slate-500 font-bold"
-                        >
-                          ✕ Fechar
-                        </button>
-                      </div>
-                    </div>
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[320px] md:min-w-[360px]">
+                    {(() => {
+                      const termo = buscaFornecedorCotacao.trim().toLowerCase();
+                      const filtrados = fornecedores.filter((f) => {
+                        if (!termo) return true;
+                        return (
+                          f.nome.toLowerCase().includes(termo) ||
+                          (f.razaoSocial && f.razaoSocial.toLowerCase().includes(termo)) ||
+                          (f.documento && f.documento.includes(termo))
+                        );
+                      });
 
-                    <div className="max-h-56 overflow-y-auto space-y-1">
-                      {fornecedores
-                        .filter((f) => f.nome.toLowerCase().includes(buscaFornecedorCotacao.toLowerCase()))
-                        .map((f) => {
-                          const isChecked = selectedFornecedoresCotacao.includes(f.nome);
-                          return (
-                            <label
-                              key={f.id}
-                              title={f.nome}
-                              className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
-                                isChecked ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200' : 'hover:bg-slate-50 text-slate-700'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => setSelectedFornecedoresCotacao(toggleArrayItem(selectedFornecedoresCotacao, f.nome))}
-                                className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0"
-                              />
-                              <span className="break-words leading-tight flex-1">{f.nome}</span>
-                            </label>
-                          );
-                        })}
-                    </div>
+                      return (
+                        <>
+                          <div className="flex items-center justify-between text-[10px] text-cyan-800 px-1 font-bold border-b border-slate-100 pb-1.5">
+                            <span>
+                              {termo
+                                ? `${filtrados.length} de ${fornecedores.length} fornecedores`
+                                : `${fornecedores.length} fornecedores no Gestão Click`}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {selectedFornecedoresCotacao.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedFornecedoresCotacao([])}
+                                  className="hover:underline text-rose-600 font-semibold"
+                                >
+                                  Desmarcar todos
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setIsFornecedoresCotacaoOpen(false)}
+                                className="hover:underline text-slate-500 font-bold"
+                              >
+                                ✕ Fechar
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="max-h-60 overflow-y-auto space-y-1">
+                            {filtrados.length === 0 ? (
+                              <div className="py-4 text-center text-slate-400 text-xs">
+                                Nenhum fornecedor encontrado para "{buscaFornecedorCotacao}".
+                              </div>
+                            ) : (
+                              filtrados.map((f) => {
+                                const isChecked = selectedFornecedoresCotacao.includes(f.nome);
+                                return (
+                                  <label
+                                    key={f.id}
+                                    title={f.razaoSocial ? `${f.nome} (${f.razaoSocial})` : f.nome}
+                                    className={`flex items-start gap-2 p-1.5 rounded cursor-pointer text-xs transition ${
+                                      isChecked
+                                        ? 'bg-cyan-50 font-bold text-cyan-900 border border-cyan-200'
+                                        : 'hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() =>
+                                        setSelectedFornecedoresCotacao(
+                                          toggleArrayItem(selectedFornecedoresCotacao, f.nome)
+                                        )
+                                      }
+                                      className="w-3.5 h-3.5 rounded text-cyan-600 shrink-0 mt-0.5"
+                                    />
+                                    <div className="flex flex-col flex-1 min-w-0">
+                                      <span className="break-words leading-tight">{f.nome}</span>
+                                      {f.razaoSocial && f.razaoSocial !== f.nome && (
+                                        <span className="text-[10px] text-slate-400 font-normal truncate mt-0.5">
+                                          {f.razaoSocial}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

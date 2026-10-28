@@ -58,22 +58,83 @@ export async function getGruposProdutos() {
   return [];
 }
 
-// 2. Fornecedores com busca opcional
-export async function getFornecedores(termo?: string) {
-  let endpoint = '/fornecedores?limite=100';
-  if (termo && termo.trim()) {
-    endpoint = `/fornecedores?nome=${encodeURIComponent(termo.trim())}&limite=50`;
+// 2. Fornecedores completos com paginação automática e cache em memória (679+ fornecedores)
+let fornecedoresCache: {
+  timestamp: number;
+  data: Array<{ id: string; nome: string; razaoSocial: string; documento: string }>;
+} | null = null;
+
+export async function getFornecedores(termo?: string, forceRefresh = false) {
+  const now = Date.now();
+
+  // Se o cache tiver menos de 10 minutos, aproveita
+  if (!forceRefresh && fornecedoresCache && now - fornecedoresCache.timestamp < 10 * 60 * 1000) {
+    if (termo && termo.trim()) {
+      const clean = termo.trim().toLowerCase();
+      return fornecedoresCache.data.filter(
+        (f) =>
+          f.nome.toLowerCase().includes(clean) ||
+          f.razaoSocial.toLowerCase().includes(clean) ||
+          f.documento.includes(clean)
+      );
+    }
+    return fornecedoresCache.data;
   }
 
-  const res = await fetchGestaoApi(endpoint);
-  if (res.ok && res.data?.data) {
-    return res.data.data.map((f: any) => ({
+  try {
+    // 1. Busca a primeira página de fornecedores para saber o total de páginas
+    const p1 = await fetchGestaoApi('/fornecedores?limite=100&pagina=1');
+    if (!p1.ok || !p1.data?.data) {
+      return [];
+    }
+
+    let allFornecedores: any[] = p1.data.data;
+    const totalPaginas = p1.data.meta?.total_paginas || 1;
+
+    // 2. Busca todas as páginas restantes em paralelo (ex: 7 páginas para 679 fornecedores)
+    if (totalPaginas > 1) {
+      const pagePromises = [];
+      for (let p = 2; p <= totalPaginas; p++) {
+        pagePromises.push(fetchGestaoApi(`/fornecedores?limite=100&pagina=${p}`));
+      }
+      const results = await Promise.all(pagePromises);
+      for (const res of results) {
+        if (res.ok && Array.isArray(res.data?.data)) {
+          allFornecedores = allFornecedores.concat(res.data.data);
+        }
+      }
+    }
+
+    const mapped = allFornecedores.map((f: any) => ({
       id: String(f.id),
-      nome: f.razao_social || f.nome || `Fornecedor #${f.id}`,
-      documento: f.cnpj || f.cpf || '',
+      nome: (f.nome || f.razao_social || `Fornecedor #${f.id}`).trim(),
+      razaoSocial: (f.razao_social || '').trim(),
+      documento: (f.cnpj || f.cpf || '').trim(),
     }));
+
+    // Ordenação alfabética para facilitar a seleção
+    mapped.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+
+    fornecedoresCache = {
+      timestamp: now,
+      data: mapped,
+    };
+
+    if (termo && termo.trim()) {
+      const clean = termo.trim().toLowerCase();
+      return mapped.filter(
+        (f) =>
+          f.nome.toLowerCase().includes(clean) ||
+          f.razaoSocial.toLowerCase().includes(clean) ||
+          f.documento.includes(clean)
+      );
+    }
+
+    return mapped;
+  } catch (e) {
+    console.error('Erro ao buscar todos os fornecedores:', e);
+    return [];
   }
-  return [];
 }
 
 // 3. Vendas do Período com itens

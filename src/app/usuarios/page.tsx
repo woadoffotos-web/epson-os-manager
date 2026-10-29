@@ -324,7 +324,8 @@ export default function UsersAndAuditPage() {
                       {[
                         { id: 'APP_EPSON_OS', label: 'Epson CSA (O.S.)' },
                         { id: 'APP_VIPZ', label: 'Vipz Infoged (Clube)' },
-                        { id: 'APP_ESTOQUE', label: 'Estoque' },
+                        { id: 'APP_ESTOQUE', label: 'Estoque / Cotação' },
+                        { id: 'APP_OUTSOURCING', label: 'Outsourcing Impressão' },
                         { id: 'APP_CHAMADOS', label: 'Chamados TI' },
                         { id: 'APP_GESTAO', label: 'Gestão Central' },
                       ].map((app) => {
@@ -411,7 +412,8 @@ export default function UsersAndAuditPage() {
                                     const appLabels: Record<string, string> = {
                                       APP_EPSON_OS: 'Epson CSA',
                                       APP_VIPZ: 'Vipz Infoged',
-                                      APP_ESTOQUE: 'Estoque',
+                                      APP_ESTOQUE: 'Estoque / Cotação',
+                                      APP_OUTSOURCING: 'Outsourcing Impressão',
                                       APP_CHAMADOS: 'Chamados TI',
                                       APP_GESTAO: 'Gestão Central',
                                     };

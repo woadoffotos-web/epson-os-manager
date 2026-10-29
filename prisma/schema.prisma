@@ -346,4 +346,77 @@ model ProductCatalogCache {
   @@index([nomeGrupo])
 }
 
+model OutsourcingLocacao {
+  id                 String   @id @default(uuid())
+  contratoGestaoId   String   @unique
+  codigoContrato     String
+  clienteId          String?
+  nomeCliente        String
+  modeloEquipamento  String   @default("")
+  numeroSerie        String?
+  franquia           Float    @default(0)
+  valorPorPagina     Float    @default(0)
+  valorTotalContrato Float    @default(0)
+  situacao           String   @default("Ativo")
+  dataInicio         DateTime?
+  proximoVencimento  String?
+  diaVencimento      String?
+  periodicidade      String?
+  observacoes        String?
+  servicoIdGestao    String?
+  servicoCatalogoId  String?
+  
+  contadorAtual      Int?
+  dataUltimaLeitura  DateTime?
+
+  leituras           OutsourcingLeitura[]
+  substituicoes      OutsourcingSubstituicao[]
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([situacao])
+  @@index([nomeCliente])
+}
+
+model OutsourcingLeitura {
+  id              String   @id @default(uuid())
+  locacaoId       String
+  locacao         OutsourcingLocacao @relation(fields: [locacaoId], references: [id], onDelete: Cascade)
+  dataLeitura     DateTime
+  contadorInicial Int      @default(0)
+  contadorAtual   Int      @default(0)
+  consumo         Int      @default(0)
+  franquia        Float    @default(0)
+  valorPorPagina  Float    @default(0)
+  valorTotal      Float    @default(0)
+  observacoes     String?
+  equipamentoInfo String?
+  criadoPor       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([locacaoId])
+  @@index([dataLeitura])
+}
+
+model OutsourcingSubstituicao {
+  id                    String   @id @default(uuid())
+  locacaoId             String
+  locacao               OutsourcingLocacao @relation(fields: [locacaoId], references: [id], onDelete: Cascade)
+  dataSubstituicao      DateTime @default(now())
+  modeloAnterior        String
+  numeroSerieAnterior   String?
+  contadorFinalAnterior Int      @default(0)
+  modeloNovo            String
+  numeroSerieNovo       String?
+  contadorInicialNovo   Int      @default(0)
+  motivo                String?
+  criadoPor             String?
+  createdAt             DateTime @default(now())
+
+  @@index([locacaoId])
+}
+
+
 

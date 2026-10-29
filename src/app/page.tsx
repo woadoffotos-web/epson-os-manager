@@ -23,6 +23,7 @@ import {
   Crown,
   Gift,
   Award,
+  Printer,
 } from 'lucide-react';
 
 export default function InfogedHubPage() {
@@ -80,6 +81,7 @@ export default function InfogedHubPage() {
   const canAccessEpson = hasAccessTo('APP_EPSON_OS');
   const canAccessVipz = hasAccessTo('APP_VIPZ');
   const canAccessEstoque = hasAccessTo('APP_ESTOQUE');
+  const canAccessOutsourcing = hasAccessTo('APP_OUTSOURCING') || canAccessEstoque || isAdminOrManager;
   const canAccessChamados = hasAccessTo('APP_CHAMADOS');
   const canAccessGestao = isAdminOrManager || hasAccessTo('APP_GESTAO');
 
@@ -387,6 +389,83 @@ export default function InfogedHubPage() {
                 >
                   <Package className="w-4 h-4 text-cyan-200" />
                   <span>Acessar Pedido de Produtos</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <div className="p-2 text-center text-xs text-slate-500 bg-slate-100 rounded-xl font-medium">
+                  Contate o administrador para liberar este módulo.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ============================================================== */}
+          {/* MÓDULO 4: OUTSOURCING DE IMPRESSÃO (ATIVO)                    */}
+          {/* ============================================================== */}
+          <div
+            className={`relative bg-white rounded-2xl p-6 shadow-sm border transition flex flex-col justify-between overflow-hidden group ${
+              canAccessOutsourcing || isAdminOrManager
+                ? 'border-blue-300/80 hover:shadow-xl hover:border-blue-500'
+                : 'border-slate-200 opacity-60'
+            }`}
+          >
+            <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-bl from-blue-500/15 via-cyan-500/10 to-transparent rounded-bl-full pointer-events-none transition group-hover:scale-125" />
+
+            <div>
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-[#002B49] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition">
+                  <Printer className="w-6 h-6 text-cyan-200" />
+                </div>
+                {canAccessOutsourcing || isAdminOrManager ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-300 text-blue-900 text-[11px] font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Módulo Ativo</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold">
+                    <Lock className="w-3 h-3 text-slate-500" />
+                    <span>Não Liberado</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 block">
+                  Contratos & Locações ERP
+                </span>
+                <h3 className="text-lg font-extrabold text-slate-900 group-hover:text-blue-800 transition">
+                  Outsourcing de Impressão
+                </h3>
+              </div>
+
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                Gestão de contratos de locação integrados com o Gestão Click: apuração mensal de contadores, cálculo automático por franquia/página e histórico de trocas de equipamentos.
+              </p>
+
+              <div className="grid grid-cols-3 gap-2 p-3 bg-blue-50/60 rounded-xl border border-blue-200/60 mb-5 text-center">
+                <div>
+                  <span className="text-[10px] text-blue-800 font-medium block">Menu 1</span>
+                  <span className="text-xs font-black text-blue-950">Dashboard</span>
+                </div>
+                <div className="border-x border-blue-200">
+                  <span className="text-[10px] text-blue-800 font-medium block">Menu 2</span>
+                  <span className="text-xs font-black text-cyan-900">Locações</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-blue-800 font-medium block">ERP Gestão</span>
+                  <span className="text-xs font-black text-emerald-900">Sync Ativo</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              {canAccessOutsourcing || isAdminOrManager ? (
+                <Link
+                  href="/outsourcing"
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-700 to-[#002B49] hover:from-blue-800 hover:to-[#001D33] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-4 h-4 text-cyan-200" />
+                  <span>Acessar Outsourcing</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               ) : (

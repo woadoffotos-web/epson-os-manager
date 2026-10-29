@@ -29,7 +29,8 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
   const isUsersPage = pathname === '/usuarios';
   const isVipzPage = pathname.startsWith('/vipz');
   const isPedidosPage = pathname.startsWith('/pedidos');
-  const isInfogedGlobal = isHub || isUsersPage || isVipzPage || isPedidosPage;
+  const isOutsourcingPage = pathname.startsWith('/outsourcing');
+  const isInfogedGlobal = isHub || isUsersPage || isVipzPage || isPedidosPage || isOutsourcingPage;
 
   const userRole = (currentUser?.role || 'TECNICO').toUpperCase();
   const isAdminOrManager = userRole === 'ADMIN' || userRole === 'GERENTE';
@@ -53,6 +54,7 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
     if (isUsersPage) moduleBadge = 'Gestão Corporativa';
     if (isVipzPage) moduleBadge = 'Vipz Infoged • Fidelidade';
     if (isPedidosPage) moduleBadge = 'Pedido de Produtos • Cotações';
+    if (isOutsourcingPage) moduleBadge = 'Outsourcing de Impressão • Locações';
 
     return (
       <header className="w-full bg-[#07241A] text-white shadow-md select-none sticky top-0 z-40 border-b border-emerald-900/50">
@@ -66,6 +68,8 @@ export default function HeaderNav({ currentUser, onSwitchUser, onLogout, availab
                   ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
                   : isPedidosPage
                   ? 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
+                  : isOutsourcingPage
+                  ? 'bg-blue-950/80 border-blue-500/40 text-blue-300'
                   : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
               }`}>
                 {moduleBadge}

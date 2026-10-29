@@ -31,6 +31,7 @@ import {
   RefreshCw,
   Sparkles,
   Clock,
+  Calendar,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -254,6 +255,88 @@ export default function PedidosPage() {
 
   const [cotacoesFeitasList, setCotacoesFeitasList] = useState<any[]>([]);
   const [loadingFeitas, setLoadingFeitas] = useState(false);
+
+  // Filtros de Pesquisa para o Menu 3: Cotações Feitas (Fornecedor, Situação e Data)
+  const [selectedFornecedoresFeitas, setSelectedFornecedoresFeitas] = useState<string[]>([]);
+  const [buscaFornecedorFeitas, setBuscaFornecedorFeitas] = useState('');
+  const [isFornecedoresFeitasOpen, setIsFornecedoresFeitasOpen] = useState(false);
+  const [filtroSituacaoFeitas, setFiltroSituacaoFeitas] = useState<string>('TODAS');
+  const [filtroDataInicioFeitas, setFiltroDataInicioFeitas] = useState<string>('');
+  const [filtroDataFimFeitas, setFiltroDataFimFeitas] = useState<string>('');
+
+  // Identificação do fornecedor associado à cotação com fallback inteligente para os itens
+  const getNomeFornecedorCotacao = (c: any) => {
+    if (c.nomeFornecedor && c.nomeFornecedor !== 'Cotação Geral' && c.nomeFornecedor !== 'Múltiplos Fornecedores') {
+      return c.nomeFornecedor;
+    }
+    let itens = [];
+    try {
+      itens = Array.isArray(c.itens) ? c.itens : JSON.parse(c.itens || '[]');
+    } catch {
+      itens = [];
+    }
+    const allSuppliers = itens.flatMap((i: any) => (Array.isArray(i.fornecedores) ? i.fornecedores : []));
+    if (allSuppliers.length > 0) {
+      const counts: Record<string, number> = {};
+      allSuppliers.forEach((s: string) => {
+        counts[s] = (counts[s] || 0) + 1;
+      });
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      return sorted[0] ? sorted[0][0] : (c.nomeFornecedor || 'Múltiplos Fornecedores');
+    }
+    return c.nomeFornecedor || 'Múltiplos Fornecedores';
+  };
+
+  // Filtragem dinâmica do Histórico de Cotações Feitas
+  const cotacoesFeitasFiltradas = useMemo(() => {
+    return cotacoesFeitasList.filter((c) => {
+      // 1. Filtro de Fornecedor
+      if (selectedFornecedoresFeitas.length > 0) {
+        const nomeFornecedorCot = getNomeFornecedorCotacao(c).toLowerCase();
+        let itensFornecedores: string[] = [];
+        try {
+          const itens = Array.isArray(c.itens) ? c.itens : JSON.parse(c.itens || '[]');
+          itensFornecedores = itens.flatMap((i: any) => (Array.isArray(i.fornecedores) ? i.fornecedores : []));
+        } catch {}
+
+        const matchFornecedor = selectedFornecedoresFeitas.some((sf) => {
+          const cleanSf = sf.toLowerCase();
+          return (
+            nomeFornecedorCot.includes(cleanSf) ||
+            itensFornecedores.some((itemF) => itemF.toLowerCase().includes(cleanSf))
+          );
+        });
+
+        if (!matchFornecedor) return false;
+      }
+
+      // 2. Filtro de Situação
+      if (filtroSituacaoFeitas && filtroSituacaoFeitas !== 'TODAS') {
+        const status = c.status || 'AGUARDANDO_CHEGAR';
+        if (status !== filtroSituacaoFeitas) return false;
+      }
+
+      // 3. Filtro de Data Inicial
+      if (filtroDataInicioFeitas) {
+        const dataCot = new Date(c.createdAt).toISOString().split('T')[0];
+        if (dataCot < filtroDataInicioFeitas) return false;
+      }
+
+      // 4. Filtro de Data Final
+      if (filtroDataFimFeitas) {
+        const dataCot = new Date(c.createdAt).toISOString().split('T')[0];
+        if (dataCot > filtroDataFimFeitas) return false;
+      }
+
+      return true;
+    });
+  }, [
+    cotacoesFeitasList,
+    selectedFornecedoresFeitas,
+    filtroSituacaoFeitas,
+    filtroDataInicioFeitas,
+    filtroDataFimFeitas,
+  ]);
 
   const [selectedCotacao, setSelectedCotacao] = useState<any | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -578,11 +661,36 @@ export default function PedidosPage() {
         };
       });
 
+      // Fornecedor associado à cotação:
+      // 1. O que o usuário digitou no campo (se preenchido)
+      // 2. Se vazio, o fornecedor selecionado no filtro de Montar Cotação (selectedFornecedoresCotacao)
+      // 3. Se ainda vazio, o fornecedor em comum nos itens da cotação
+      let fornecedorAssociado = cotacaoNomeFornecedor.trim();
+      if (!fornecedorAssociado) {
+        if (selectedFornecedoresCotacao.length > 0) {
+          fornecedorAssociado = selectedFornecedoresCotacao.join(', ');
+        } else {
+          const todosFornecedores = payloadItens.flatMap((i) =>
+            Array.isArray(i.fornecedores) ? i.fornecedores : []
+          );
+          if (todosFornecedores.length > 0) {
+            const counts: Record<string, number> = {};
+            todosFornecedores.forEach((s: string) => {
+              counts[s] = (counts[s] || 0) + 1;
+            });
+            const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+            fornecedorAssociado = sorted[0] ? sorted[0][0] : 'Múltiplos Fornecedores';
+          } else {
+            fornecedorAssociado = 'Múltiplos Fornecedores';
+          }
+        }
+      }
+
       const res = await fetch('/api/pedidos?action=finalizar_cotacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nomeFornecedor: cotacaoNomeFornecedor.trim() || 'Cotação Geral',
+          nomeFornecedor: fornecedorAssociado,
           valorTotal: totalCotacaoMontagem,
           quantidadeItens: payloadItens.length,
           observacoes: cotacaoObservacoes.trim(),
@@ -2035,7 +2143,11 @@ export default function PedidosPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Kalunga, Inovasupri, Smart Color..."
+                  placeholder={
+                    selectedFornecedoresCotacao.length > 0
+                      ? `Sugerido: ${selectedFornecedoresCotacao.join(', ')}`
+                      : 'Ex: Elgin, Kalunga, Inovasupri...'
+                  }
                   value={cotacaoNomeFornecedor}
                   onChange={(e) => setCotacaoNomeFornecedor(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 bg-amber-50/30 focus:outline-none focus:border-amber-600 font-semibold text-slate-800"
@@ -2528,11 +2640,274 @@ export default function PedidosPage() {
               type="button"
               onClick={fetchCotacoesFeitas}
               disabled={loadingFeitas}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
             >
               {loadingFeitas ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
               <span>Atualizar Histórico</span>
             </button>
+          </div>
+
+          {/* PAINEL DE PESQUISA & FILTROS PARA COTAÇÕES FEITAS (Foto 2) */}
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <span className="text-xs font-black text-[#002B49] uppercase tracking-wider flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5 text-cyan-600" />
+                <span>Filtros de Pesquisa de Cotações</span>
+              </span>
+              {(selectedFornecedoresFeitas.length > 0 ||
+                filtroSituacaoFeitas !== 'TODAS' ||
+                filtroDataInicioFeitas ||
+                filtroDataFimFeitas) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFornecedoresFeitas([]);
+                    setBuscaFornecedorFeitas('');
+                    setFiltroSituacaoFeitas('TODAS');
+                    setFiltroDataInicioFeitas('');
+                    setFiltroDataFimFeitas('');
+                  }}
+                  className="text-[11px] text-rose-600 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Limpar Todos os Filtros</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              {/* Campo 1: Fornecedor (seguindo os parâmetros anteriores: combobox pesquisável com todos os fornecedores) */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Fornecedor ({selectedFornecedoresFeitas.length} selecionado{selectedFornecedoresFeitas.length !== 1 ? 's' : ''})</span>
+                  {selectedFornecedoresFeitas.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresFeitas([])}
+                      className="text-[10px] text-cyan-700 hover:underline font-normal cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={
+                      selectedFornecedoresFeitas.length === 0
+                        ? 'Buscar fornecedor...'
+                        : `${selectedFornecedoresFeitas.length} selecionado(s)...`
+                    }
+                    value={buscaFornecedorFeitas}
+                    onChange={(e) => {
+                      setBuscaFornecedorFeitas(e.target.value);
+                      setIsFornecedoresFeitasOpen(true);
+                    }}
+                    onFocus={() => setIsFornecedoresFeitasOpen(true)}
+                    className="w-full px-3 py-1.5 pr-8 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-cyan-600 font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsFornecedoresFeitasOpen(!isFornecedoresFeitasOpen)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {isFornecedoresFeitasOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-2 min-w-[300px] md:min-w-[350px]">
+                    {(() => {
+                      const termo = buscaFornecedorFeitas.trim().toLowerCase();
+                      const filtrados = fornecedores.filter((f) => {
+                        if (!termo) return true;
+                        return (
+                          f.nome.toLowerCase().includes(termo) ||
+                          (f.razaoSocial && f.razaoSocial.toLowerCase().includes(termo)) ||
+                          (f.documento && f.documento.includes(termo))
+                        );
+                      });
+
+                      return (
+                        <>
+                          <div className="flex items-center justify-between text-[10px] text-cyan-800 px-1 font-bold border-b border-slate-100 pb-1.5">
+                            <span>
+                              {termo
+                                ? `${filtrados.length} fornecedores encontrados`
+                                : `${fornecedores.length} fornecedores no Gestão`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setIsFornecedoresFeitasOpen(false)}
+                              className="hover:underline text-slate-500 font-bold cursor-pointer"
+                            >
+                              ✕ Fechar
+                            </button>
+                          </div>
+
+                          <div className="max-h-56 overflow-y-auto space-y-1">
+                            {filtrados.length === 0 ? (
+                              <div className="py-4 text-center text-slate-400 text-xs">
+                                Nenhum fornecedor encontrado para "{buscaFornecedorFeitas}".
+                              </div>
+                            ) : (
+                              filtrados.map((f) => {
+                                const isChecked = selectedFornecedoresFeitas.includes(f.nome);
+                                return (
+                                  <label
+                                    key={f.id}
+                                    className={`flex items-start gap-2 p-1.5 rounded-lg text-xs cursor-pointer transition ${
+                                      isChecked ? 'bg-cyan-50 font-bold text-cyan-950' : 'hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        setSelectedFornecedoresFeitas((prev) =>
+                                          prev.includes(f.nome)
+                                            ? prev.filter((item) => item !== f.nome)
+                                            : [...prev, f.nome]
+                                        );
+                                      }}
+                                      className="mt-0.5 rounded text-cyan-600 focus:ring-cyan-500"
+                                    />
+                                    <div className="leading-tight">
+                                      <div className="line-clamp-1">{f.nome}</div>
+                                      {f.razaoSocial && f.razaoSocial !== f.nome && (
+                                        <div className="text-[10px] text-slate-400 font-normal line-clamp-1">
+                                          {f.razaoSocial}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Campo 2: Situação */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Situação da Cotação
+                </label>
+                <select
+                  value={filtroSituacaoFeitas}
+                  onChange={(e) => setFiltroSituacaoFeitas(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-cyan-600 font-medium"
+                >
+                  <option value="TODAS">Todas as Situações</option>
+                  <option value="AGUARDANDO_CHEGAR">🕒 Aguardando chegar</option>
+                  <option value="FINALIZADA">✓ Finalizada</option>
+                  <option value="ENTREGA_PARCIAL">⚠️ Entrega parcial</option>
+                </select>
+              </div>
+
+              {/* Campo 3: Data Inicial */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-cyan-600" />
+                  <span>Data do Pedido (Inicial)</span>
+                </label>
+                <input
+                  type="date"
+                  value={filtroDataInicioFeitas}
+                  onChange={(e) => setFiltroDataInicioFeitas(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-cyan-600 font-medium"
+                />
+              </div>
+
+              {/* Campo 4: Data Final */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-cyan-600" />
+                  <span>Data do Pedido (Final)</span>
+                </label>
+                <input
+                  type="date"
+                  value={filtroDataFimFeitas}
+                  onChange={(e) => setFiltroDataFimFeitas(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-cyan-600 font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Tags e Contador dos Filtros Ativos */}
+            {(selectedFornecedoresFeitas.length > 0 ||
+              filtroSituacaoFeitas !== 'TODAS' ||
+              filtroDataInicioFeitas ||
+              filtroDataFimFeitas) && (
+              <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100 text-xs">
+                <span className="text-[11px] font-bold text-slate-500">Filtros aplicados:</span>
+
+                {selectedFornecedoresFeitas.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-900 border border-cyan-300"
+                  >
+                    <span>{f}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFornecedoresFeitas(selectedFornecedoresFeitas.filter((item) => item !== f))}
+                      className="hover:text-rose-600 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+
+                {filtroSituacaoFeitas !== 'TODAS' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                    <span>
+                      Situação: {filtroSituacaoFeitas === 'AGUARDANDO_CHEGAR' ? 'Aguardando chegar' : filtroSituacaoFeitas === 'FINALIZADA' ? 'Finalizada' : 'Entrega parcial'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroSituacaoFeitas('TODAS')}
+                      className="hover:text-rose-600 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {filtroDataInicioFeitas && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-300">
+                    <span>De: {new Date(filtroDataInicioFeitas + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDataInicioFeitas('')}
+                      className="hover:text-rose-600 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {filtroDataFimFeitas && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-300">
+                    <span>Até: {new Date(filtroDataFimFeitas + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDataFimFeitas('')}
+                      className="hover:text-rose-600 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                <span className="text-[11px] font-bold text-cyan-800 ml-auto">
+                  Encontradas: {cotacoesFeitasFiltradas.length} de {cotacoesFeitasList.length} cotações
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
@@ -2567,8 +2942,30 @@ export default function PedidosPage() {
                         Nenhuma cotação finalizada ainda. Acesse a aba "Montar Cotação" para criar a primeira!
                       </td>
                     </tr>
+                  ) : cotacoesFeitasFiltradas.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Search className="w-6 h-6 text-slate-300" />
+                          <span className="font-semibold text-xs">Nenhuma cotação encontrada com os filtros selecionados.</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFornecedoresFeitas([]);
+                              setBuscaFornecedorFeitas('');
+                              setFiltroSituacaoFeitas('TODAS');
+                              setFiltroDataInicioFeitas('');
+                              setFiltroDataFimFeitas('');
+                            }}
+                            className="text-[11px] text-cyan-700 hover:underline font-bold mt-1"
+                          >
+                            Limpar filtros de pesquisa
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ) : (
-                    cotacoesFeitasList.map((c, idx) => {
+                    cotacoesFeitasFiltradas.map((c, idx) => {
                       const isEven = idx % 2 === 0;
                       const status = c.status || 'AGUARDANDO_CHEGAR';
                       const isFinalizada = status === 'FINALIZADA';
@@ -2599,9 +2996,9 @@ export default function PedidosPage() {
                             {new Date(c.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                           </td>
 
-                          {/* Fornecedor */}
+                          {/* Fornecedor Destinatário */}
                           <td className="px-4 py-2.5 font-semibold text-slate-800">
-                            {c.nomeFornecedor || 'Múltiplos Fornecedores'}
+                            {getNomeFornecedorCotacao(c)}
                           </td>
 
                           {/* Quantidade de Itens */}

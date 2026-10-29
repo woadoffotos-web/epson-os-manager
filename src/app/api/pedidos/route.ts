@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
+  fetchGestaoApi,
   getGruposProdutos,
   getFornecedores,
   getVendasPeriodo,
@@ -82,6 +83,28 @@ export async function GET(request: Request) {
             nome: existing.nome,
           },
         });
+      }
+
+      // Consulta também a API do Gestão Click diretamente para garantir
+      try {
+        const gestaoRes = await fetchGestaoApi(`/produtos?busca=${encodeURIComponent(codigo)}`);
+        if (gestaoRes.ok && Array.isArray(gestaoRes.data?.data)) {
+          const match = gestaoRes.data.data.find(
+            (p: any) => (p.codigo_interno || '').trim().toLowerCase() === codigo.toLowerCase()
+          );
+          if (match) {
+            return NextResponse.json({
+              exists: true,
+              produto: {
+                id: String(match.id),
+                codigo: match.codigo_interno,
+                nome: match.nome,
+              },
+            });
+          }
+        }
+      } catch (errGestao) {
+        console.error('Erro ao verificar duplicidade no Gestão Click:', errGestao);
       }
 
       return NextResponse.json({ exists: false });
@@ -584,7 +607,7 @@ export async function POST(request: Request) {
     }
 
     // ================================================================
-    // AÇÃO 7: INSERIR NOVO PRODUTO NO CATÁLOGO / LISTAGEM EM ABERTO
+    // AÇÃO 7: INSERIR NOVO PRODUTO NO GESTÃO CLICK ERP E COTAÇÃO
     // ================================================================
     if (action === 'inserir_produto') {
       const {
@@ -593,6 +616,7 @@ export async function POST(request: Request) {
         grupoId = '',
         nomeGrupo = 'Diversos',
         fornecedor = '',
+        fornecedorId = '',
         fornecedores = [],
         valorCusto = 0,
       } = body;
@@ -612,7 +636,7 @@ export async function POST(request: Request) {
           attempts++;
         } while (existingCodes.has(finalCodigo) && attempts < 1000);
       } else {
-        // Validação estrita de duplicidade de código no banco/ERP
+        // Validação estrita de duplicidade de código no banco local
         const existing = await prisma.productCatalogCache.findFirst({
           where: {
             codigoInterno: { equals: finalCodigo, mode: 'insensitive' },
@@ -624,7 +648,86 @@ export async function POST(request: Request) {
             { status: 400 }
           );
         }
+
+        // Validação estrita de duplicidade na API do Gestão Click
+        try {
+          const gestaoCheck = await fetchGestaoApi(`/produtos?busca=${encodeURIComponent(finalCodigo)}`);
+          if (gestaoCheck.ok && Array.isArray(gestaoCheck.data?.data)) {
+            const match = gestaoCheck.data.data.find(
+              (p: any) => (p.codigo_interno || '').trim().toLowerCase() === finalCodigo.toLowerCase()
+            );
+            if (match) {
+              return NextResponse.json(
+                { error: `O código interno "${finalCodigo}" já está cadastrado no Gestão Click para o produto "${match.nome}". Por favor, utilize outro código.` },
+                { status: 400 }
+              );
+            }
+          }
+        } catch (errCheck) {
+          console.error('Erro ao verificar duplicidade no Gestão Click:', errCheck);
+        }
       }
+
+      // Resolver Grupo válido para o Gestão Click
+      const grupos = await getGruposProdutos();
+      let finalGrupoId = (grupoId || '').trim();
+      let finalNomeGrupo = (nomeGrupo || '').trim();
+
+      if (finalGrupoId) {
+        const found = grupos.find((g: any) => String(g.id) === finalGrupoId);
+        if (found) {
+          finalNomeGrupo = found.nome;
+        }
+      } else if (finalNomeGrupo) {
+        const found = grupos.find((g: any) => g.nome.toLowerCase() === finalNomeGrupo.toLowerCase());
+        if (found) {
+          finalGrupoId = String(found.id);
+          finalNomeGrupo = found.nome;
+        }
+      }
+
+      if (!finalGrupoId && grupos.length > 0) {
+        finalGrupoId = String(grupos[0].id);
+        finalNomeGrupo = grupos[0].nome;
+      }
+
+      const costNum = parseFloat(valorCusto) || 0;
+      const costFormatted = costNum.toFixed(2);
+
+      // 1. Cadastrar produto imediatamente no Gestão Click ERP via POST /produtos
+      const gestaoPayload: Record<string, any> = {
+        nome: nome.trim(),
+        codigo_interno: finalCodigo,
+        valor_custo: costFormatted,
+        valor_venda: costFormatted,
+        grupo_id: finalGrupoId,
+        movimenta_estoque: '1',
+        ativo: '1',
+      };
+
+      if (fornecedorId && String(fornecedorId).trim()) {
+        gestaoPayload.fornecedor_id = String(fornecedorId).trim();
+      }
+
+      const resGestao = await fetchGestaoApi('/produtos', {
+        method: 'POST',
+        body: JSON.stringify(gestaoPayload),
+      });
+
+      if (!resGestao.ok || resGestao.data?.status !== 'success' || !resGestao.data?.data?.id) {
+        console.error('Erro ao cadastrar produto no Gestão Click:', resGestao);
+        const gestaoErrMsg =
+          resGestao.data?.data?.mensagem ||
+          resGestao.data?.data?.erro ||
+          resGestao.data?.error ||
+          (resGestao.raw ? 'Retorno inválido da API do ERP' : 'Falha na comunicação com o Gestão Click');
+        return NextResponse.json(
+          { error: `Erro no Gestão Click ao cadastrar produto: ${gestaoErrMsg}` },
+          { status: 400 }
+        );
+      }
+
+      const gestaoProdutoId = String(resGestao.data.data.id);
 
       // Prepara fornecedores
       const fornList =
@@ -634,33 +737,32 @@ export async function POST(request: Request) {
           ? [fornecedor.trim()]
           : [];
 
-      const pId = `prod-${finalCodigo}`;
-
+      // 2. Salva no banco de dados local com o ID real gerado pelo Gestão Click
       const savedProd = await prisma.productCatalogCache.upsert({
-        where: { produtoId: pId },
+        where: { produtoId: gestaoProdutoId },
         update: {
           codigoInterno: finalCodigo,
           nome: nome.trim(),
-          grupoId: String(grupoId || ''),
-          nomeGrupo: nomeGrupo ? String(nomeGrupo) : 'Diversos',
+          grupoId: String(finalGrupoId || ''),
+          nomeGrupo: finalNomeGrupo ? String(finalNomeGrupo) : 'Diversos',
           fornecedores: JSON.stringify(fornList),
-          valorCusto: parseFloat(valorCusto) || 0,
+          valorCusto: costNum,
         },
         create: {
-          produtoId: pId,
+          produtoId: gestaoProdutoId,
           codigoInterno: finalCodigo,
           nome: nome.trim(),
-          grupoId: String(grupoId || ''),
-          nomeGrupo: nomeGrupo ? String(nomeGrupo) : 'Diversos',
+          grupoId: String(finalGrupoId || ''),
+          nomeGrupo: finalNomeGrupo ? String(finalNomeGrupo) : 'Diversos',
           fornecedores: JSON.stringify(fornList),
           estoque: 0,
-          valorCusto: parseFloat(valorCusto) || 0,
+          valorCusto: costNum,
         },
       });
 
       return NextResponse.json({
         success: true,
-        message: `Produto "${savedProd.nome}" (Cód: ${finalCodigo}) inserido com sucesso!`,
+        message: `Produto "${savedProd.nome}" (Cód: ${finalCodigo}, ID Gestão: ${gestaoProdutoId}) criado no Gestão Click com sucesso e inserido na cotação!`,
         produto: {
           produtoId: savedProd.produtoId,
           codigo: savedProd.codigoInterno,

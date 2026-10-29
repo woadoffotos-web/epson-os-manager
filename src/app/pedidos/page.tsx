@@ -847,6 +847,12 @@ export default function PedidosPage() {
 
     try {
       setSavingNovoProduto(true);
+      const fornObj = fornecedores.find(
+        (f) =>
+          f.nome.toLowerCase() === novoProdutoFornecedor.trim().toLowerCase() ||
+          (f.razaoSocial && f.razaoSocial.toLowerCase() === novoProdutoFornecedor.trim().toLowerCase())
+      );
+
       const res = await fetch('/api/pedidos?action=inserir_produto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -856,13 +862,14 @@ export default function PedidosPage() {
           grupoId: novoProdutoGrupoId,
           nomeGrupo: novoProdutoNomeGrupo,
           fornecedor: novoProdutoFornecedor.trim(),
+          fornecedorId: fornObj?.id || '',
           valorCusto: parseFloat(novoProdutoValorCusto) || 0,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Erro ao cadastrar novo produto.');
+        alert(data.error || 'Erro ao cadastrar novo produto no Gestão Click.');
         return;
       }
 
@@ -884,8 +891,10 @@ export default function PedidosPage() {
       setHasSearchedCotacao(true);
       setIsNovoProdutoModalOpen(false);
 
-      setSuccessCotacaoMessage(`Produto "${prodInserido.nome}" (Cód: ${prodInserido.codigo}) inserido na cotação em ordem alfabética!`);
-      setTimeout(() => setSuccessCotacaoMessage(null), 5000);
+      setSuccessCotacaoMessage(
+        data.message || `Produto "${prodInserido.nome}" (Cód: ${prodInserido.codigo}) cadastrado com sucesso no Gestão Click e inserido na cotação!`
+      );
+      setTimeout(() => setSuccessCotacaoMessage(null), 6000);
     } catch (err) {
       console.error(err);
       alert('Falha ao comunicar com o servidor.');

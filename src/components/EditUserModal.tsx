@@ -15,6 +15,7 @@ const AVAILABLE_APPS = [
   { id: 'APP_EPSON_OS', label: 'Epson CSA - Controle de O.S. & SLA', description: 'Acesso às ordens de serviço, manômetros e relatórios Epson.' },
   { id: 'APP_VIPZ', label: 'Vipz Infoged - Clube de Benefícios & Fidelidade', description: 'Consulta de clientes, extrato de pontos, confirmação de vendas e resgate de prêmios.' },
   { id: 'APP_ESTOQUE', label: 'Pedido de Produtos & Central de Cotações', description: 'Giro de vendas, limites de estoque mínimo/máximo e montagem de cotações.' },
+  { id: 'APP_OUTSOURCING', label: 'Outsourcing de Impressão - Gestão de Locações', description: 'Contratos, apuração mensal de contadores, cálculo de franquias e trocas de máquinas.' },
   { id: 'APP_CHAMADOS', label: 'Chamados & Suporte TI', description: 'Central de tickets de suporte técnico e atendimento.' },
   { id: 'APP_GESTAO', label: 'Gestão Corporativa & Auditoria', description: 'Gerenciamento de usuários, permissões e auditoria global.', adminOnly: true },
 ];

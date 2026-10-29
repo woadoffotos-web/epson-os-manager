@@ -465,6 +465,7 @@ export async function GET(request: Request) {
       const parsed = cotacoes.map((c) => ({
         ...c,
         itens: JSON.parse(c.itens || '[]'),
+        status: c.status || 'AGUARDANDO_CHEGAR',
       }));
 
       return NextResponse.json({ cotacoes: parsed });
@@ -567,7 +568,7 @@ export async function POST(request: Request) {
           quantidadeItens: itens.length,
           observacoes,
           itens: JSON.stringify(itensComConferencia),
-          status: 'ENTREGA_PARCIAL',
+          status: 'AGUARDANDO_CHEGAR',
           criadoPor,
         },
       });

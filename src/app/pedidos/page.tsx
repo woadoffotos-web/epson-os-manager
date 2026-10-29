@@ -30,6 +30,7 @@ import {
   PlusCircle,
   RefreshCw,
   Sparkles,
+  Clock,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -2569,7 +2570,10 @@ export default function PedidosPage() {
                   ) : (
                     cotacoesFeitasList.map((c, idx) => {
                       const isEven = idx % 2 === 0;
-                      const isFinalizada = c.status === 'FINALIZADA';
+                      const status = c.status || 'AGUARDANDO_CHEGAR';
+                      const isFinalizada = status === 'FINALIZADA';
+                      const isParcial = status === 'ENTREGA_PARCIAL';
+                      const isAguardando = status === 'AGUARDANDO_CHEGAR';
 
                       return (
                         <tr
@@ -2577,7 +2581,9 @@ export default function PedidosPage() {
                           className={`transition ${
                             isFinalizada
                               ? 'bg-emerald-50/30 border-l-4 border-l-emerald-500 hover:bg-emerald-50/60 border-b border-emerald-100'
-                              : 'bg-rose-50/30 border-l-4 border-l-rose-500 hover:bg-rose-50/60 border-b border-rose-100'
+                              : isParcial
+                              ? 'bg-rose-50/30 border-l-4 border-l-rose-500 hover:bg-rose-50/60 border-b border-rose-100'
+                              : 'bg-amber-50/20 border-l-4 border-l-amber-400 hover:bg-amber-50/50 border-b border-slate-200'
                           }`}
                         >
                           {/* Nº Cotação */}
@@ -2615,10 +2621,15 @@ export default function PedidosPage() {
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 Finalizada
                               </span>
-                            ) : (
+                            ) : isParcial ? (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-xs">
                                 <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
                                 Entrega parcial
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 shadow-xs">
+                                <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                Aguardando chegar
                               </span>
                             )}
                           </td>

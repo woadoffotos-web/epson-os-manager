@@ -59,6 +59,35 @@ export async function GET(request: Request) {
     }
 
     // ================================================================
+    // AÇÃO 0.3: VERIFICAR DUPLICIDADE DE CÓDIGO INTERNO NO ERP / BANCO
+    // ================================================================
+    if (action === 'verificar_codigo') {
+      const codigo = (searchParams.get('codigo') || '').trim();
+      if (!codigo) {
+        return NextResponse.json({ exists: false });
+      }
+
+      const existing = await prisma.productCatalogCache.findFirst({
+        where: {
+          codigoInterno: { equals: codigo, mode: 'insensitive' },
+        },
+      });
+
+      if (existing) {
+        return NextResponse.json({
+          exists: true,
+          produto: {
+            id: existing.produtoId,
+            codigo: existing.codigoInterno,
+            nome: existing.nome,
+          },
+        });
+      }
+
+      return NextResponse.json({ exists: false });
+    }
+
+    // ================================================================
     // AÇÃO 1: CONFIG (Grupos e Fornecedores para os filtros de busca)
     // ================================================================
     if (action === 'config') {
@@ -521,6 +550,13 @@ export async function POST(request: Request) {
       const nextSeq = (lastQuotation?.sequencial ?? 0) + 1;
       const numeroFormatado = String(nextSeq).padStart(4, '0'); // ex: 0001, 0002, 0003
 
+      // Itens iniciados para conferência futura
+      const itensComConferencia = itens.map((item: any) => ({
+        ...item,
+        quantidadeConferida: 0,
+        conferido: false,
+      }));
+
       const novaCotacao = await prisma.productQuotation.create({
         data: {
           numero: numeroFormatado,
@@ -530,8 +566,8 @@ export async function POST(request: Request) {
           valorTotal: parseFloat(valorTotal) || 0,
           quantidadeItens: itens.length,
           observacoes,
-          itens: JSON.stringify(itens),
-          status: 'FINALIZADA',
+          itens: JSON.stringify(itensComConferencia),
+          status: 'ENTREGA_PARCIAL',
           criadoPor,
         },
       });
@@ -541,7 +577,7 @@ export async function POST(request: Request) {
         message: `Cotação nº ${numeroFormatado} finalizada com sucesso!`,
         cotacao: {
           ...novaCotacao,
-          itens,
+          itens: itensComConferencia,
         },
       });
     }
@@ -574,6 +610,19 @@ export async function POST(request: Request) {
           finalCodigo = String(Math.floor(100000 + Math.random() * 900000));
           attempts++;
         } while (existingCodes.has(finalCodigo) && attempts < 1000);
+      } else {
+        // Validação estrita de duplicidade de código no banco/ERP
+        const existing = await prisma.productCatalogCache.findFirst({
+          where: {
+            codigoInterno: { equals: finalCodigo, mode: 'insensitive' },
+          },
+        });
+        if (existing) {
+          return NextResponse.json(
+            { error: `O código interno "${finalCodigo}" já está cadastrado no sistema para o produto "${existing.nome}". Por favor, utilize outro código.` },
+            { status: 400 }
+          );
+        }
       }
 
       // Prepara fornecedores
@@ -630,6 +679,51 @@ export async function POST(request: Request) {
           quantidadePedida: '',
           reservas: '',
         },
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 8: SALVAR CONFERÊNCIA DE PRODUTOS DA COTAÇÃO
+    // ================================================================
+    if (action === 'salvar_conferencia') {
+      const { cotacaoId, itens = [] } = body;
+
+      if (!cotacaoId) {
+        return NextResponse.json({ error: 'cotacaoId é obrigatório' }, { status: 400 });
+      }
+
+      // Regra de conferência:
+      // Se todos os produtos tiverem a quantidade conferida igual à quantidade pedida E o checkbox marcado -> 'FINALIZADA'
+      // Caso contrário -> 'ENTREGA_PARCIAL'
+      const isAllOk =
+        Array.isArray(itens) &&
+        itens.length > 0 &&
+        itens.every((item: any) => {
+          const qPed = parseFloat(item.quantidadePedida) || 0;
+          const qConf = parseFloat(item.quantidadeConferida) || 0;
+          return Boolean(item.conferido && qConf === qPed);
+        });
+
+      const novoStatus = isAllOk ? 'FINALIZADA' : 'ENTREGA_PARCIAL';
+
+      const cotacaoAtualizada = await prisma.productQuotation.update({
+        where: { id: String(cotacaoId) },
+        data: {
+          itens: JSON.stringify(itens),
+          status: novoStatus,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: isAllOk
+          ? `Cotação nº ${cotacaoAtualizada.numero} conferida com sucesso! Situação: FINALIZADA (Verde)`
+          : `Cotação nº ${cotacaoAtualizada.numero} atualizada! Situação: ENTREGA PARCIAL (Vermelho)`,
+        cotacao: {
+          ...cotacaoAtualizada,
+          itens,
+        },
+        status: novoStatus,
       });
     }
 

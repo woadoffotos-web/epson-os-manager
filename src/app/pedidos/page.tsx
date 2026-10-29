@@ -269,6 +269,45 @@ export default function PedidosPage() {
   const [novoProdutoReservas, setNovoProdutoReservas] = useState('');
   const [loadingGerarCodigo, setLoadingGerarCodigo] = useState(false);
   const [savingNovoProduto, setSavingNovoProduto] = useState(false);
+  const [codigoDuplicadoInfo, setCodigoDuplicadoInfo] = useState<{ exists: boolean; produtoNome?: string } | null>(null);
+  const [checkingCodigo, setCheckingCodigo] = useState(false);
+  const [isFornecedorModalDropdownOpen, setIsFornecedorModalDropdownOpen] = useState(false);
+  const [buscaFornecedorModal, setBuscaFornecedorModal] = useState('');
+
+  // Estados para o Modal de Conferência de Produtos (Cotações Feitas)
+  const [isConferenciaModalOpen, setIsConferenciaModalOpen] = useState(false);
+  const [cotacaoEmConferencia, setCotacaoEmConferencia] = useState<any | null>(null);
+  const [itensConferencia, setItensConferencia] = useState<any[]>([]);
+  const [savingConferencia, setSavingConferencia] = useState(false);
+
+  // Verificação de duplicidade de código com debounce ao digitar
+  useEffect(() => {
+    if (!isNovoProdutoModalOpen || !novoProdutoCodigo || !novoProdutoCodigo.trim()) {
+      setCodigoDuplicadoInfo(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setCheckingCodigo(true);
+        const res = await fetch(`/api/pedidos?action=verificar_codigo&codigo=${encodeURIComponent(novoProdutoCodigo.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.exists) {
+            setCodigoDuplicadoInfo({ exists: true, produtoNome: data.produto?.nome });
+          } else {
+            setCodigoDuplicadoInfo({ exists: false });
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao verificar código:', e);
+      } finally {
+        setCheckingCodigo(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [novoProdutoCodigo, isNovoProdutoModalOpen]);
 
   // 1. Carregar Configurações Iniciais do Gestão Click
   useEffect(() => {
@@ -643,6 +682,9 @@ export default function PedidosPage() {
     setNovoProdutoValorCusto('');
     setNovoProdutoQtdPedida('');
     setNovoProdutoReservas('');
+    setCodigoDuplicadoInfo(null);
+    setBuscaFornecedorModal('');
+    setIsFornecedorModalDropdownOpen(false);
 
     try {
       const res = await fetch('/api/pedidos?action=gerar_codigo_interno');
@@ -664,6 +706,7 @@ export default function PedidosPage() {
   // Regerar novo código interno exclusivo
   const handleRegerarCodigo = async () => {
     setLoadingGerarCodigo(true);
+    setCodigoDuplicadoInfo(null);
     try {
       const res = await fetch('/api/pedidos?action=gerar_codigo_interno');
       if (res.ok) {
@@ -677,15 +720,19 @@ export default function PedidosPage() {
     }
   };
 
-  // Salvar e Inserir Novo Produto na lista em aberto da Cotação
+  // Salvar e Inserir Novo Produto na lista em aberto da Cotação (em ordem alfabética)
   const handleSalvarNovoProduto = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoProdutoNome.trim()) {
       alert('Por favor, informe o Nome do Produto.');
       return;
     }
-    if (!novoProdutoCodigo.trim() || novoProdutoCodigo.trim().length !== 6) {
-      alert('O código interno deve ter 6 dígitos.');
+    if (!novoProdutoCodigo.trim()) {
+      alert('Por favor, informe o Código Interno do Produto.');
+      return;
+    }
+    if (codigoDuplicadoInfo?.exists) {
+      alert(`Atenção: O código "${novoProdutoCodigo}" já está cadastrado no sistema para o produto "${codigoDuplicadoInfo.produtoNome}". Por favor, utilize outro código.`);
       return;
     }
 
@@ -718,18 +765,110 @@ export default function PedidosPage() {
         valorCotacao: parseFloat(novoProdutoValorCusto) || 0,
       };
 
-      // Insere imediatamente no topo da listagem de cotação em aberto
-      setCotacaoProdutosList((prev) => [prodInserido, ...prev]);
+      // Insere na listagem de cotação em aberto e reordena em ORDEM ALFABÉTICA
+      setCotacaoProdutosList((prev) => {
+        const updated = [prodInserido, ...prev.filter((p) => p.produtoId !== prodInserido.produtoId)];
+        updated.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+        return updated;
+      });
+
       setHasSearchedCotacao(true);
       setIsNovoProdutoModalOpen(false);
 
-      setSuccessCotacaoMessage(`Produto "${prodInserido.nome}" (Cód: ${prodInserido.codigo}) inserido na cotação com sucesso!`);
+      setSuccessCotacaoMessage(`Produto "${prodInserido.nome}" (Cód: ${prodInserido.codigo}) inserido na cotação em ordem alfabética!`);
       setTimeout(() => setSuccessCotacaoMessage(null), 5000);
     } catch (err) {
       console.error(err);
       alert('Falha ao comunicar com o servidor.');
     } finally {
       setSavingNovoProduto(false);
+    }
+  };
+
+  // ====================================================================
+  // FUNÇÕES DE CONFERÊNCIA DE PRODUTOS (COTAÇÕES FEITAS)
+  // ====================================================================
+  const handleOpenConferenciaModal = (cotacao: any) => {
+    setCotacaoEmConferencia(cotacao);
+    let itens = [];
+    try {
+      itens = Array.isArray(cotacao.itens) ? cotacao.itens : JSON.parse(cotacao.itens || '[]');
+    } catch {
+      itens = [];
+    }
+
+    // Inicializa campos de conferência caso não existam
+    const formatted = itens.map((item: any) => ({
+      ...item,
+      quantidadeConferida: item.quantidadeConferida !== undefined && item.quantidadeConferida !== null ? item.quantidadeConferida : '',
+      conferido: Boolean(item.conferido ?? false),
+    }));
+
+    setItensConferencia(formatted);
+    setIsConferenciaModalOpen(true);
+  };
+
+  const handleUpdateItemConferencia = (index: number, field: string, value: any) => {
+    setItensConferencia((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const handleMarcarTodosConferidos = () => {
+    setItensConferencia((prev) =>
+      prev.map((item) => ({
+        ...item,
+        quantidadeConferida: item.quantidadePedida,
+        conferido: true,
+      }))
+    );
+  };
+
+  const handleLimparConferencia = () => {
+    setItensConferencia((prev) =>
+      prev.map((item) => ({
+        ...item,
+        quantidadeConferida: '',
+        conferido: false,
+      }))
+    );
+  };
+
+  const handleSalvarConferencia = async () => {
+    if (!cotacaoEmConferencia) return;
+
+    try {
+      setSavingConferencia(true);
+      const res = await fetch('/api/pedidos?action=salvar_conferencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cotacaoId: cotacaoEmConferencia.id,
+          itens: itensConferencia,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao salvar conferência.');
+        return;
+      }
+
+      // Atualiza na listagem de cotações feitas
+      setCotacoesFeitasList((prev) =>
+        prev.map((c) => (c.id === cotacaoEmConferencia.id ? data.cotacao : c))
+      );
+
+      setIsConferenciaModalOpen(false);
+      setSuccessCotacaoMessage(data.message || 'Conferência gravada com sucesso!');
+      setTimeout(() => setSuccessCotacaoMessage(null), 6000);
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao comunicar com o servidor.');
+    } finally {
+      setSavingConferencia(false);
     }
   };
 
@@ -2405,6 +2544,7 @@ export default function PedidosPage() {
                     <th className="px-4 py-2.5 font-bold">FORNECEDOR DESTINATÁRIO</th>
                     <th className="px-3 py-2.5 font-bold text-center whitespace-nowrap">QTD ITENS</th>
                     <th className="px-4 py-2.5 font-bold text-right whitespace-nowrap">VALOR TOTAL (R$)</th>
+                    <th className="px-4 py-2.5 font-bold text-center whitespace-nowrap">SITUAÇÃO</th>
                     <th className="px-4 py-2.5 font-bold whitespace-nowrap">CRIADO POR</th>
                     <th className="px-4 py-2.5 font-bold text-center whitespace-nowrap bg-[#001D33]">AÇÕES</th>
                   </tr>
@@ -2413,7 +2553,7 @@ export default function PedidosPage() {
                 <tbody>
                   {loadingFeitas ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-500">
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-cyan-700" />
                           <span className="font-semibold text-xs">Carregando cotações feitas...</span>
@@ -2422,22 +2562,23 @@ export default function PedidosPage() {
                     </tr>
                   ) : cotacoesFeitasList.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
                         Nenhuma cotação finalizada ainda. Acesse a aba "Montar Cotação" para criar a primeira!
                       </td>
                     </tr>
                   ) : (
                     cotacoesFeitasList.map((c, idx) => {
                       const isEven = idx % 2 === 0;
+                      const isFinalizada = c.status === 'FINALIZADA';
 
                       return (
                         <tr
                           key={c.id}
                           className={`transition ${
-                            isEven
-                              ? 'bg-slate-100/70 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] border-b border-slate-200/90'
-                              : 'bg-white border-b border-slate-200/50'
-                          } hover:bg-slate-50`}
+                            isFinalizada
+                              ? 'bg-emerald-50/30 border-l-4 border-l-emerald-500 hover:bg-emerald-50/60 border-b border-emerald-100'
+                              : 'bg-rose-50/30 border-l-4 border-l-rose-500 hover:bg-rose-50/60 border-b border-rose-100'
+                          }`}
                         >
                           {/* Nº Cotação */}
                           <td className="px-4 py-2.5 font-mono font-black text-sm text-[#002B49] whitespace-nowrap">
@@ -2467,34 +2608,60 @@ export default function PedidosPage() {
                             R$ {c.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
 
+                          {/* Situação / Status da Cotação & Conferência */}
+                          <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                            {isFinalizada ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                Finalizada
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-xs">
+                                <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                                Entrega parcial
+                              </span>
+                            )}
+                          </td>
+
                           {/* Criado Por */}
                           <td className="px-4 py-2.5 text-slate-600 text-[11px] whitespace-nowrap">
                             {c.criadoPor || 'Administrador'}
                           </td>
 
-                          {/* Ações: Visualizar Cotação e Imprimir Cotação */}
+                          {/* Ações: Conferir, Visualizar e Imprimir */}
                           <td className="px-4 py-2 text-center whitespace-nowrap border-l border-slate-200">
-                            <div className="flex items-center justify-center gap-2">
-                              {/* Botão 1: Visualizar Cotação */}
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                              {/* Botão 1: Conferir Produtos */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenConferenciaModal(c)}
+                                className="px-2.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs transition cursor-pointer"
+                                title="Conferir entrega dos produtos desta cotação"
+                              >
+                                <CheckSquare className="w-3.5 h-3.5 text-blue-200" />
+                                <span>Conferir Produtos</span>
+                              </button>
+
+                              {/* Botão 2: Visualizar Cotação */}
                               <button
                                 type="button"
                                 onClick={() => handleOpenViewModal(c)}
-                                className="px-3 py-1.5 bg-[#002B49] hover:bg-[#001D33] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
+                                className="px-2.5 py-1.5 bg-[#002B49] hover:bg-[#001D33] text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs transition cursor-pointer"
                                 title="Visualizar detalhes da cotação"
                               >
                                 <Eye className="w-3.5 h-3.5" />
-                                <span>Visualizar Cotação</span>
+                                <span>Visualizar</span>
                               </button>
 
-                              {/* Botão 2: Imprimir Cotação */}
+                              {/* Botão 3: Imprimir Cotação */}
                               <button
                                 type="button"
                                 onClick={() => handlePrintCotacao(c)}
-                                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
+                                className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs transition cursor-pointer"
                                 title="Imprimir ou gerar PDF desta cotação"
                               >
                                 <Printer className="w-3.5 h-3.5" />
-                                <span>Imprimir Cotação</span>
+                                <span>Imprimir</span>
                               </button>
                             </div>
                           </td>
@@ -2732,11 +2899,11 @@ export default function PedidosPage() {
 
             {/* Formulário */}
             <form onSubmit={handleSalvarNovoProduto} className="p-5 space-y-4 text-xs">
-              {/* Código Interno de 6 Dígitos */}
-              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-1.5">
+              {/* Código Interno Automático ou Personalizado (Sem limite de dígitos) */}
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
-                    Código Interno Automático (6 dígitos)
+                    Código Interno (Sugestão de 6 dígitos ou digite sem limite)
                   </label>
                   <button
                     type="button"
@@ -2748,20 +2915,46 @@ export default function PedidosPage() {
                     <span>Gerar Outro</span>
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <div>
                   <input
                     type="text"
                     required
-                    maxLength={6}
                     value={novoProdutoCodigo}
                     onChange={(e) => setNovoProdutoCodigo(e.target.value)}
-                    className="w-full px-3 py-1.5 text-center font-mono font-black text-base tracking-widest text-[#002B49] bg-white border border-emerald-300 rounded-lg focus:outline-none focus:border-emerald-600 shadow-inner"
-                    placeholder="Ex: 849201"
+                    className={`w-full px-3 py-1.5 text-center font-mono font-black text-base tracking-widest bg-white border rounded-lg focus:outline-none shadow-inner transition ${
+                      codigoDuplicadoInfo?.exists
+                        ? 'border-rose-500 text-rose-950 bg-rose-50/50 focus:border-rose-600'
+                        : codigoDuplicadoInfo?.exists === false
+                        ? 'border-emerald-500 text-emerald-950 focus:border-emerald-600'
+                        : 'border-emerald-300 text-[#002B49] focus:border-emerald-600'
+                    }`}
+                    placeholder="Digite qualquer código interno..."
                   />
                 </div>
-                <p className="text-[10px] text-emerald-800 leading-tight">
-                  Código exclusivo verificado para evitar duplicidade com os produtos cadastrados no ERP.
-                </p>
+
+                {/* Feedback em tempo real de duplicidade */}
+                {checkingCodigo ? (
+                  <p className="text-[11px] text-slate-500 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                    <span>Verificando duplicidade no ERP...</span>
+                  </p>
+                ) : codigoDuplicadoInfo?.exists ? (
+                  <div className="text-[11px] text-rose-700 font-bold flex items-start gap-1.5 bg-rose-50 p-2 rounded-lg border border-rose-300">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>
+                      Código já cadastrado para o produto <strong>"{codigoDuplicadoInfo.produtoNome}"</strong>. Por favor, escolha outro número.
+                    </span>
+                  </div>
+                ) : codigoDuplicadoInfo?.exists === false ? (
+                  <div className="text-[11px] text-emerald-800 font-bold flex items-center gap-1 bg-emerald-100/70 p-1.5 rounded border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Código exclusivo verificado e disponível no Gestão Click!</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-emerald-800 leading-tight">
+                    Você pode manter a sugestão de 6 dígitos ou digitar qualquer código sem limite de tamanho.
+                  </p>
+                )}
               </div>
 
               {/* Nome do Produto */}
@@ -2780,18 +2973,90 @@ export default function PedidosPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Fornecedor */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
-                    Fornecedor
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Elgin, Pauta, Kalunga..."
-                    value={novoProdutoFornecedor}
-                    onChange={(e) => setNovoProdutoFornecedor(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600"
-                  />
+                {/* Fornecedor com seleção de todos os 679 fornecedores do ERP */}
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                      Fornecedor ({fornecedores.length})
+                    </label>
+                    <span className="text-[10px] text-cyan-800 font-semibold">
+                      Gestão Click
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Pesquise ou selecione um fornecedor..."
+                      value={novoProdutoFornecedor}
+                      onFocus={() => setIsFornecedorModalDropdownOpen(true)}
+                      onChange={(e) => {
+                        setNovoProdutoFornecedor(e.target.value);
+                        setBuscaFornecedorModal(e.target.value);
+                        setIsFornecedorModalDropdownOpen(true);
+                      }}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:border-emerald-600 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsFornecedorModalDropdownOpen(!isFornecedorModalDropdownOpen)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {isFornecedorModalDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 space-y-1.5 max-h-60 overflow-y-auto">
+                      <div className="flex items-center justify-between pb-1 border-b border-slate-100 text-[10px] font-bold text-slate-500">
+                        <span>Escolha um dos {fornecedores.length} fornecedores:</span>
+                        <button
+                          type="button"
+                          onClick={() => setIsFornecedorModalDropdownOpen(false)}
+                          className="hover:underline text-slate-400 font-bold"
+                        >
+                          ✕ Fechar
+                        </button>
+                      </div>
+
+                      <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                        {fornecedores
+                          .filter((f) => {
+                            if (!buscaFornecedorModal.trim()) return true;
+                            const t = buscaFornecedorModal.toLowerCase();
+                            return (
+                              f.nome.toLowerCase().includes(t) ||
+                              (f.razaoSocial && f.razaoSocial.toLowerCase().includes(t)) ||
+                              (f.documento && f.documento.includes(t))
+                            );
+                          })
+                          .slice(0, 100)
+                          .map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => {
+                                setNovoProdutoFornecedor(f.nome);
+                                setBuscaFornecedorModal('');
+                                setIsFornecedorModalDropdownOpen(false);
+                              }}
+                              className={`w-full text-left p-1.5 rounded text-xs transition flex flex-col cursor-pointer ${
+                                novoProdutoFornecedor === f.nome
+                                  ? 'bg-emerald-50 text-emerald-950 font-bold'
+                                  : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <span className="leading-tight">{f.nome}</span>
+                              {f.razaoSocial && f.razaoSocial !== f.nome && (
+                                <span className="text-[10px] text-slate-400 font-normal truncate">
+                                  {f.razaoSocial}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Grupo do Produto */}
@@ -2880,8 +3145,8 @@ export default function PedidosPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={savingNovoProduto}
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  disabled={savingNovoProduto || Boolean(codigoDuplicadoInfo?.exists) || checkingCodigo}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {savingNovoProduto ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2892,6 +3157,258 @@ export default function PedidosPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: CONFERÊNCIA DE PRODUTOS DA COTAÇÃO                      */}
+      {/* ============================================================== */}
+      {isConferenciaModalOpen && cotacaoEmConferencia && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Topo do Modal */}
+            <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center font-bold">
+                  <CheckSquare className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">
+                    Conferência de Entrega &bull; Cotação #{cotacaoEmConferencia.numero}
+                  </h3>
+                  <p className="text-xs text-cyan-200">
+                    Confira as quantidades recebidas e marque os itens para finalizar ou sinalizar entrega parcial
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConferenciaModalOpen(false)}
+                className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Informações da Cotação & Banner de Status em Tempo Real */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3 shrink-0">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2 rounded-lg bg-white border border-slate-200">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Fornecedor</span>
+                  <span className="font-bold text-slate-800 truncate block mt-0.5" title={cotacaoEmConferencia.nomeFornecedor}>
+                    {cotacaoEmConferencia.nomeFornecedor || 'Múltiplos Fornecedores'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-white border border-slate-200">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Data do Pedido</span>
+                  <span className="font-bold text-slate-800 block mt-0.5">
+                    {new Date(cotacaoEmConferencia.createdAt).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-white border border-slate-200">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Total de Itens</span>
+                  <span className="font-bold text-slate-800 block mt-0.5">
+                    {cotacaoEmConferencia.quantidadeItens} {cotacaoEmConferencia.quantidadeItens === 1 ? 'item' : 'itens'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-white border border-slate-200">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Valor Total</span>
+                  <span className="font-mono font-bold text-emerald-700 block mt-0.5">
+                    R$ {cotacaoEmConferencia.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status em Tempo Real */}
+              {(() => {
+                const isTudoOk =
+                  itensConferencia.length > 0 &&
+                  itensConferencia.every((item) => {
+                    const qPed = parseFloat(item.quantidadePedida) || 0;
+                    const qConf = parseFloat(item.quantidadeConferida) || 0;
+                    return Boolean(item.conferido && qConf === qPed);
+                  });
+
+                return isTudoOk ? (
+                  <div className="p-3 bg-emerald-100 border border-emerald-300 rounded-xl flex items-center justify-between text-emerald-950 text-xs font-bold shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
+                      <span>
+                        Tudo OK! Todos os {itensConferencia.length} itens conferidos com quantidade 100% igual à do pedido. Ao salvar, a cotação ficará em VERDE com a situação: <strong>FINALIZADA</strong>.
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-rose-100 border border-rose-300 rounded-xl flex items-center justify-between text-rose-950 text-xs font-bold shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-rose-700 shrink-0" />
+                      <span>
+                        Atenção: Existem itens não conferidos, caixinha desmarcada ou com quantidade diferente da pedida. Ao salvar, a cotação ficará em VERMELHO com a situação: <strong>ENTREGA PARCIAL</strong>.
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Barra de Ações Rápidas */}
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-slate-500 text-[11px]">
+                  Preencha a quantidade recebida e marque o check de cada produto recebido.
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMarcarTodosConferidos}
+                    className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>Marcar Tudo 100% OK</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLimparConferencia}
+                    className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabela dos Produtos na Conferência */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-[#002B49] text-white">
+                    <tr className="text-[11px]">
+                      <th className="p-2.5 w-10 text-center">#</th>
+                      <th className="p-2.5 w-24">CÓDIGO</th>
+                      <th className="p-2.5 min-w-[200px]">NOME DO PRODUTO</th>
+                      <th className="p-2.5 min-w-[140px]">RESERVAS (OS / VENDA)</th>
+                      <th className="p-2.5 text-center w-28 bg-[#0F2D4A]">QTD PEDIDO</th>
+                      <th className="p-2.5 text-center w-36 bg-amber-950 text-amber-200">QTD CONFERIDA</th>
+                      <th className="p-2.5 text-center w-24 bg-cyan-950 text-cyan-200">CHECK</th>
+                      <th className="p-2.5 text-center w-28 bg-[#001D33]">SITUAÇÃO</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {itensConferencia.map((item, idx) => {
+                      const qPed = parseFloat(item.quantidadePedida) || 0;
+                      const qConf = parseFloat(item.quantidadeConferida) || 0;
+                      const isItemOk = Boolean(item.conferido && qConf === qPed);
+                      const isPartial = Boolean(item.conferido && qConf > 0 && qConf !== qPed);
+
+                      return (
+                        <tr
+                          key={idx}
+                          className={`transition ${
+                            isItemOk
+                              ? 'bg-emerald-50/50 hover:bg-emerald-100/40'
+                              : isPartial
+                              ? 'bg-amber-50/50 hover:bg-amber-100/40'
+                              : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <td className="p-2.5 text-center font-mono text-slate-500">{idx + 1}</td>
+                          <td className="p-2.5 font-mono font-bold text-[#002B49] whitespace-nowrap">
+                            {item.codigo}
+                          </td>
+                          <td className="p-2.5">
+                            <span className="font-semibold text-slate-900 block">{item.nome}</span>
+                            <span className="text-[10px] text-slate-400 block">{item.grupo || item.nomeGrupo}</span>
+                          </td>
+                          <td className="p-2.5 text-xs">
+                            {item.reservas ? (
+                              <span className="font-semibold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-200 block">
+                                {item.reservas}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center font-mono font-black text-sm text-[#002B49] bg-slate-50">
+                            {qPed}
+                          </td>
+                          <td className="p-2.5 text-center bg-amber-50/30">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="0"
+                              value={item.quantidadeConferida}
+                              onChange={(e) =>
+                                handleUpdateItemConferencia(idx, 'quantidadeConferida', e.target.value)
+                              }
+                              className={`w-20 px-2 py-1 text-center font-black font-mono text-sm rounded border transition focus:outline-none ${
+                                isItemOk
+                                  ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
+                                  : qConf > 0
+                                  ? 'border-rose-500 bg-rose-50 text-rose-950'
+                                  : 'border-slate-300 bg-white text-slate-900 focus:border-cyan-600'
+                              }`}
+                            />
+                          </td>
+                          <td className="p-2.5 text-center bg-cyan-50/30">
+                            <input
+                              type="checkbox"
+                              checked={item.conferido}
+                              onChange={(e) =>
+                                handleUpdateItemConferencia(idx, 'conferido', e.target.checked)
+                              }
+                              className="w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-2.5 text-center whitespace-nowrap">
+                            {isItemOk ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                OK (100%)
+                              </span>
+                            ) : isPartial ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                <AlertCircle className="w-3 h-3 text-amber-600" />
+                                {qConf}/{qPed} un
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                <AlertCircle className="w-3 h-3 text-rose-600" />
+                                Pendente
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Rodapé do Modal com Ações */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsConferenciaModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSalvarConferencia}
+                disabled={savingConferencia}
+                className="px-6 py-2.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                {savingConferencia ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-white" />
+                )}
+                <span>Salvar Conferência</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

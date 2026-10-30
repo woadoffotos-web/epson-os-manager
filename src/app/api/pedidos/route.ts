@@ -478,10 +478,13 @@ export async function GET(request: Request) {
     }
 
     // ================================================================
-    // AÇÃO 4: COTAÇÕES FEITAS (Menu 3)
+    // AÇÃO 4: PEDIDOS FEITOS (Menu 4 - antigo Cotações Feitas)
     // ================================================================
-    if (action === 'cotacoes') {
+    if (action === 'cotacoes' || action === 'pedidos_feitos') {
       const cotacoes = await prisma.productQuotation.findMany({
+        where: {
+          status: { not: 'EM_ANDAMENTO' },
+        },
         orderBy: { sequencial: 'desc' },
       });
 
@@ -490,6 +493,41 @@ export async function GET(request: Request) {
         itens: JSON.parse(c.itens || '[]'),
         status: c.status || 'AGUARDANDO_CHEGAR',
       }));
+
+      return NextResponse.json({ cotacoes: parsed });
+    }
+
+    // ================================================================
+    // AÇÃO 4.1: COTAÇÕES EM ANDAMENTO (Menu 3)
+    // ================================================================
+    if (action === 'cotacoes_andamento') {
+      const cotacoes = await prisma.productQuotation.findMany({
+        where: {
+          status: 'EM_ANDAMENTO',
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const parsed = cotacoes.map((c) => {
+        let itensList: any[] = [];
+        try {
+          itensList = JSON.parse(c.itens || '[]');
+        } catch {
+          itensList = [];
+        }
+        const gruposSet = new Set<string>();
+        itensList.forEach((it: any) => {
+          if (it.nomeGrupo) gruposSet.add(it.nomeGrupo);
+        });
+        const gruposStr = Array.from(gruposSet).join(', ') || 'Geral';
+
+        return {
+          ...c,
+          itens: itensList,
+          grupos: gruposStr,
+          status: 'EM_ANDAMENTO',
+        };
+      });
 
       return NextResponse.json({ cotacoes: parsed });
     }
@@ -547,7 +585,169 @@ export async function POST(request: Request) {
     }
 
     // ================================================================
-    // AÇÃO 6: FINALIZAR COTAÇÃO (Cria Cotação numerada 0001, 0002...)
+    // AÇÃO 6: GERAR COTAÇÃO (Cria Cotações Individuais por Fornecedor em Cotações em Andamento)
+    // ================================================================
+    if (action === 'gerar_cotacao' || action === 'gerar_cotacoes_andamento') {
+      const {
+        cotacoes = [],
+        itens = [],
+        observacoes = '',
+        criadoPor = 'Usuário',
+      } = body;
+
+      let cotacoesToCreate: any[] = [];
+      if (Array.isArray(cotacoes) && cotacoes.length > 0) {
+        cotacoesToCreate = cotacoes;
+      } else if (Array.isArray(itens) && itens.length > 0) {
+        const map = new Map<string, any[]>();
+        for (const it of itens) {
+          const q = parseFloat(it.quantidadePedida) || 0;
+          if (q <= 0) continue;
+          const forn = (it.fornecedor || (it.fornecedores && it.fornecedores[0]) || 'Fornecedor Geral').trim();
+          if (!map.has(forn)) map.set(forn, []);
+          map.get(forn)!.push(it);
+        }
+
+        for (const [forn, fornItens] of map.entries()) {
+          const total = fornItens.reduce((acc, curr) => {
+            const q = parseFloat(curr.quantidadePedida) || 0;
+            const v = parseFloat(curr.valorCotacao) || 0;
+            return acc + q * v;
+          }, 0);
+          cotacoesToCreate.push({
+            nomeFornecedor: forn,
+            itens: fornItens,
+            valorTotal: total,
+            quantidadeItens: fornItens.length,
+            observacoes,
+          });
+        }
+      }
+
+      if (cotacoesToCreate.length === 0) {
+        return NextResponse.json(
+          { error: 'Para gerar a cotação, adicione ao menos um produto com quantidade a ser pedida.' },
+          { status: 400 }
+        );
+      }
+
+      const criadas = [];
+      for (const cot of cotacoesToCreate) {
+        const lastQuotation = await prisma.productQuotation.findFirst({
+          orderBy: { sequencial: 'desc' },
+        });
+
+        const nextSeq = (lastQuotation?.sequencial ?? 0) + 1;
+        const numeroFormatado = String(nextSeq).padStart(4, '0');
+
+        const nova = await prisma.productQuotation.create({
+          data: {
+            numero: numeroFormatado,
+            sequencial: nextSeq,
+            nomeFornecedor: cot.nomeFornecedor || 'Fornecedor Geral',
+            fornecedorId: cot.fornecedorId ? String(cot.fornecedorId) : null,
+            valorTotal: parseFloat(cot.valorTotal) || 0,
+            quantidadeItens: Array.isArray(cot.itens) ? cot.itens.length : 0,
+            observacoes: cot.observacoes || observacoes || '',
+            itens: JSON.stringify(cot.itens || []),
+            status: 'EM_ANDAMENTO',
+            criadoPor,
+          },
+        });
+
+        criadas.push({
+          ...nova,
+          itens: cot.itens,
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `${criadas.length} cotação(ões) individual(is) por fornecedor gerada(s) em Cotações em Andamento!`,
+        cotacoes: criadas,
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 6.1: CONVERTER COTAÇÃO EM ANDAMENTO EM PEDIDO FEITO
+    // ================================================================
+    if (action === 'converter_em_pedido') {
+      const { cotacaoId, itens = [], observacoes = '' } = body;
+
+      if (!cotacaoId) {
+        return NextResponse.json({ error: 'cotacaoId é obrigatório' }, { status: 400 });
+      }
+
+      // Filtra apenas produtos com quantidade a pedir > 0
+      const itensComPedido = (itens || []).filter((item: any) => {
+        const q = parseFloat(item.quantidadePedida) || 0;
+        return q > 0;
+      });
+
+      if (itensComPedido.length === 0) {
+        return NextResponse.json(
+          { error: 'Para gerar o pedido, é necessário ter ao menos um produto com quantidade a pedir diferente de zero.' },
+          { status: 400 }
+        );
+      }
+
+      let novoTotal = 0;
+      const itensComConferencia = itensComPedido.map((item: any) => {
+        const qPed = parseFloat(item.quantidadePedida) || 0;
+        const vCot = parseFloat(item.valorCotacao) || 0;
+        novoTotal += qPed * vCot;
+        return {
+          ...item,
+          quantidadePedida: qPed,
+          valorCotacao: vCot,
+          quantidadeConferida: 0,
+          conferido: false,
+        };
+      });
+
+      const pedidoAtualizado = await prisma.productQuotation.update({
+        where: { id: String(cotacaoId) },
+        data: {
+          itens: JSON.stringify(itensComConferencia),
+          valorTotal: novoTotal,
+          quantidadeItens: itensComConferencia.length,
+          observacoes: observacoes || undefined,
+          status: 'AGUARDANDO_CHEGAR',
+          updatedAt: new Date(),
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Pedido nº ${pedidoAtualizado.numero} gerado com sucesso no menu Pedidos Feitos! Situação: Aguardando Chegar`,
+        pedido: {
+          ...pedidoAtualizado,
+          itens: itensComConferencia,
+        },
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 6.2: EXCLUIR COTAÇÃO EM ANDAMENTO
+    // ================================================================
+    if (action === 'excluir_cotacao') {
+      const { cotacaoId } = body;
+      if (!cotacaoId) {
+        return NextResponse.json({ error: 'cotacaoId é obrigatório' }, { status: 400 });
+      }
+
+      await prisma.productQuotation.delete({
+        where: { id: String(cotacaoId) },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Cotação excluída com sucesso!',
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 6.3: FINALIZAR COTAÇÃO (Compatibilidade Legada)
     // ================================================================
     if (action === 'finalizar_cotacao') {
       const {

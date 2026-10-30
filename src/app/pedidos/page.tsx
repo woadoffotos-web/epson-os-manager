@@ -1178,6 +1178,7 @@ export default function PedidosPage() {
         body: JSON.stringify({
           cotacaoId: cotacaoEmConferencia.id,
           itens: itensConferencia,
+          conferidoPor: currentUser?.name || 'Wagner Alberto da Silva',
         }),
       });
 
@@ -3379,6 +3380,7 @@ export default function PedidosPage() {
                     <th className="px-4 py-2.5 font-bold text-right whitespace-nowrap">VALOR TOTAL (R$)</th>
                     <th className="px-4 py-2.5 font-bold text-center whitespace-nowrap">SITUAÇÃO</th>
                     <th className="px-4 py-2.5 font-bold whitespace-nowrap">CRIADO POR</th>
+                    <th className="px-4 py-2.5 font-bold whitespace-nowrap bg-[#003B66]">CONFERIDO POR</th>
                     <th className="px-4 py-2.5 font-bold text-center whitespace-nowrap bg-[#001D33]">AÇÕES</th>
                   </tr>
                 </thead>
@@ -3386,7 +3388,7 @@ export default function PedidosPage() {
                 <tbody>
                   {loadingFeitas ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <td colSpan={9} className="py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-cyan-700" />
                           <span className="font-semibold text-xs">Carregando cotações feitas...</span>
@@ -3395,13 +3397,13 @@ export default function PedidosPage() {
                     </tr>
                   ) : cotacoesFeitasList.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
                         Nenhuma cotação finalizada ainda. Acesse a aba "Montar Cotação" para criar a primeira!
                       </td>
                     </tr>
                   ) : cotacoesFeitasFiltradas.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Search className="w-6 h-6 text-slate-300" />
                           <span className="font-semibold text-xs">Nenhuma cotação encontrada com os filtros selecionados.</span>
@@ -3491,6 +3493,29 @@ export default function PedidosPage() {
                           {/* Criado Por */}
                           <td className="px-4 py-2.5 text-slate-600 text-[11px] whitespace-nowrap">
                             {c.criadoPor || 'Administrador'}
+                          </td>
+
+                          {/* Conferido Por (Foto 1) */}
+                          <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap bg-blue-50/30">
+                            {c.conferidoPor ? (
+                              <div>
+                                <span className="font-bold text-slate-900 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>{c.conferidoPor}</span>
+                                </span>
+                                {c.conferidoEm && (
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                                    {new Date(c.conferidoEm).toLocaleDateString('pt-BR')} às{' '}
+                                    {new Date(c.conferidoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px] flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-300" />
+                                <span>Aguardando</span>
+                              </span>
+                            )}
                           </td>
 
                           {/* Ações: Conferir, Visualizar e Imprimir */}
@@ -4083,6 +4108,23 @@ export default function PedidosPage() {
                     R$ {cotacaoEmConferencia.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
+
+                {cotacaoEmConferencia.conferidoPor && (
+                  <div className="p-2 rounded-lg bg-blue-50/80 border border-blue-200 col-span-2 sm:col-span-4 flex items-center justify-between text-xs">
+                    <span className="text-slate-700 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Última conferência realizada por: <strong className="text-slate-900">{cotacaoEmConferencia.conferidoPor}</strong>
+                        {cotacaoEmConferencia.conferidoEm && (
+                          <span> em {new Date(cotacaoEmConferencia.conferidoEm).toLocaleDateString('pt-BR')} às {new Date(cotacaoEmConferencia.conferidoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded border border-blue-300">
+                      Conferência Registrada
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Status em Tempo Real */}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import CreateOsModal from '@/components/CreateOsModal';
 import EditOsModal from '@/components/EditOsModal';
 import { useApp } from '@/app/ClientLayout';
@@ -40,6 +40,33 @@ export default function WorkOrdersPage() {
   const [models, setModels] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Controle de rolagem horizontal superior sincronizada (Foto 3)
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      setTableScrollWidth(tableContainerRef.current.scrollWidth);
+    }
+  }, [orders, activeTab]);
+
+  const handleTopScroll = () => {
+    if (tableContainerRef.current && topScrollRef.current) {
+      tableContainerRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  };
+
+  const handleTableScroll = () => {
+    if (tableContainerRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
+    }
+  };
+
+  // Identificação do papel do usuário
+  const userRole = (currentUser?.role || 'TECNICO').toUpperCase();
+  const isTecnico = userRole === 'TECNICO';
 
   // Estado de feedback de salvamento automático
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -505,7 +532,81 @@ export default function WorkOrdersPage() {
 
           {/* Tabela de Gerenciamento de O.S. (Fiel à Tabela com Cabeçalhos Agrupados do Print) */}
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto max-h-[650px] relative">
+            {/* Barra de rolagem horizontal superior fixa sincronizada (Foto 3) */}
+            <div className="bg-[#001D33] text-white px-3 py-2 flex items-center justify-between gap-3 border-b border-blue-900 select-none shadow-xs">
+              <div className="flex items-center gap-2 shrink-0">
+                <TableIcon className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[11px] font-bold text-cyan-200 hidden sm:inline">
+                  Navegação Horizontal:
+                </span>
+              </div>
+
+              {/* Trilho da barra de rolagem horizontal */}
+              <div
+                ref={topScrollRef}
+                onScroll={handleTopScroll}
+                className="flex-1 overflow-x-auto h-4 bg-slate-800/90 rounded-full cursor-ew-resize border border-cyan-800 shadow-inner"
+                title="Arraste ou role esta barra para navegar horizontalmente pelas colunas da tabela"
+              >
+                <div style={{ width: `${tableScrollWidth}px`, height: '1px' }} />
+              </div>
+
+              {/* Botões rápidos de navegação */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tableContainerRef.current) {
+                      tableContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded bg-blue-900/80 hover:bg-blue-800 text-cyan-200 text-[10px] font-bold transition cursor-pointer"
+                  title="Ir para o início (O.S., Modelo e Situação)"
+                >
+                  ⬅️ Início
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tableContainerRef.current) {
+                      tableContainerRef.current.scrollTo({
+                        left: tableContainerRef.current.scrollWidth * 0.45,
+                        behavior: 'smooth',
+                      });
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded bg-blue-900/80 hover:bg-blue-800 text-yellow-300 text-[10px] font-bold transition cursor-pointer hidden md:inline-block"
+                  title="Ir para Faturamento, Peças e Conserto"
+                >
+                  Peças / Conserto ⚡
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tableContainerRef.current) {
+                      tableContainerRef.current.scrollTo({
+                        left: tableContainerRef.current.scrollWidth,
+                        behavior: 'smooth',
+                      });
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold transition cursor-pointer"
+                  title="Ir para o final (Avisos e Saídas)"
+                >
+                  Saídas ➡️
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref={tableContainerRef}
+              onScroll={handleTableScroll}
+              className="overflow-x-auto max-h-[650px] relative scrollbar-thin scrollbar-thumb-[#002B49] scrollbar-track-slate-200"
+              style={{
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#002B49 #e2e8f0',
+              }}
+            >
               <table className="w-full text-left border-collapse text-xs">
                 {/* Linha 1 do Cabeçalho Agrupado */}
                 <thead className="bg-[#002B49] text-white sticky top-0 z-20 select-none">
@@ -561,8 +662,8 @@ export default function WorkOrdersPage() {
                   </tr>
                 </thead>
 
-                {/* Linhas de Dados com Edição Inline e Auto-Save */}
-                <tbody className="divide-y divide-slate-200">
+                {/* Linhas de Dados com Edição Inline, Zebra Striping e Marca d'água técnica (Foto 4) */}
+                <tbody className="border-collapse">
                   {orders.length === 0 ? (
                     <tr>
                       <td colSpan={canDelete ? 26 : 25} className="px-4 py-8 text-center text-slate-400">
@@ -570,26 +671,46 @@ export default function WorkOrdersPage() {
                       </td>
                     </tr>
                   ) : (
-                    orders.map((o) => {
+                    orders.map((o, index) => {
                       const alerts = getOsSlaAlerts(o);
+                      const isEven = index % 2 === 1;
+
+                      // Regra de Marca d'água técnica (Foto 4):
+                      // Quando estiver logado em algum usuário do grupo técnico, ordens com situação
+                      // 'Retirada', 'Anulada'/'Anula' ou 'Consertada' ficam como marca d'água (semi-transparentes),
+                      // porém com 100% das opções de edições e demais regras totalmente disponíveis!
+                      const sitName = (o.situation?.name || '').toLowerCase();
+                      const isConcluida =
+                        sitName.includes('retirada') ||
+                        sitName.includes('anula') ||
+                        sitName.includes('consertada');
+                      const isMarcaDagua = isTecnico && isConcluida;
 
                       return (
                         <tr
                           key={o.id}
-                          className={`transition group ${
+                          className={`transition-colors duration-150 group border-b-2 ${
                             alerts.isFullRowAlert
-                              ? 'bg-rose-100/70 hover:bg-rose-200/60 font-medium border-l-4 border-l-rose-600'
-                              : 'hover:bg-slate-50'
+                              ? 'bg-rose-100/80 hover:bg-rose-200/80 font-medium border-b-rose-300'
+                              : isMarcaDagua
+                              ? 'opacity-40 hover:opacity-100 transition-opacity duration-200 bg-slate-100/70 hover:bg-blue-50/70 border-b-slate-300'
+                              : isEven
+                              ? 'bg-slate-50/80 hover:bg-blue-50/70 border-b-slate-200'
+                              : 'bg-white hover:bg-blue-50/70 border-b-slate-200'
                           }`}
                         >
                           {/* 1. OS Number (Fixo/Sticky com clique para abrir janela completa de edição e SLA) */}
                           <td
-                            className={`px-2.5 py-1.5 whitespace-nowrap transition sticky left-0 z-10 border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.06)] ${
+                            className={`px-3 py-2.5 whitespace-nowrap transition-colors sticky left-0 z-10 border-r-2 border-slate-300 shadow-[3px_0_6px_rgba(0,0,0,0.08)] ${
                               alerts.isOsNumberAlert
-                                ? 'bg-rose-100 text-rose-950 font-bold border-l-4 border-rose-500'
+                                ? 'bg-rose-100 text-rose-950 font-bold border-l-4 border-l-rose-500'
                                 : alerts.isFullRowAlert
                                 ? 'bg-rose-100 text-[#002B49] font-bold'
-                                : 'bg-white group-hover:bg-slate-50 font-bold text-[#002B49]'
+                                : isMarcaDagua
+                                ? 'bg-slate-100/95 group-hover:bg-blue-50 font-bold text-[#002B49]'
+                                : isEven
+                                ? 'bg-slate-50 group-hover:bg-blue-50 font-bold text-[#002B49]'
+                                : 'bg-white group-hover:bg-blue-50 font-bold text-[#002B49]'
                             }`}
                           >
                             <div className="flex items-center gap-1.5">
@@ -602,6 +723,15 @@ export default function WorkOrdersPage() {
                                 <span>{o.osNumber}</span>
                                 <span className="text-[10px] text-cyan-600 opacity-60 group-hover/os:opacity-100 transition-opacity">↗</span>
                               </button>
+
+                              {isMarcaDagua && (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[8px] bg-slate-200/90 text-slate-600 font-extrabold uppercase tracking-wider shrink-0 border border-slate-300"
+                                  title="Ordem concluída (marca d'água técnica)"
+                                >
+                                  Concluída
+                                </span>
+                              )}
 
                               {alerts.isOsNumberAlert && (
                                 <span
@@ -624,18 +754,18 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 2. Modelo (Fixo) */}
-                          <td className="px-2 py-1.5 text-slate-700 font-medium whitespace-nowrap">
+                          <td className="px-2.5 py-2.5 text-slate-700 font-medium whitespace-nowrap">
                             {o.model?.name}
                             <span className="text-[10px] text-slate-400 block">{o.model?.type?.name}</span>
                           </td>
 
                           {/* 3. Série (Fixo) */}
-                          <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                          <td className="px-2.5 py-2.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
                             {o.serialNumber}
                           </td>
 
                           {/* 4. Situação (Editável com cores pré-cadastradas) */}
-                          <td className="px-1.5 py-1.5 whitespace-nowrap">
+                          <td className="px-2 py-2.5 whitespace-nowrap">
                             <select
                               value={o.situationId}
                               onChange={(e) => handleAutoSave(o.id, 'situationId', e.target.value)}
@@ -651,7 +781,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 5. Local (Dropdown de 1A a 16H) */}
-                          <td className="px-1 py-1.5 whitespace-nowrap">
+                          <td className="px-1.5 py-2.5 whitespace-nowrap">
                             <select
                               value={o.locationId || ''}
                               onChange={(e) => handleAutoSave(o.id, 'locationId', e.target.value || null)}
@@ -667,7 +797,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 6. Reincidência (Sim / Não com crítica dos 90 dias) */}
-                          <td className="px-1 py-1.5 text-center whitespace-nowrap">
+                          <td className="px-1.5 py-2.5 text-center whitespace-nowrap">
                             <select
                               value={o.isRecurrent ? 'true' : 'false'}
                               onChange={(e) => handleAutoSave(o.id, 'isRecurrent', e.target.value === 'true')}
@@ -683,17 +813,17 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 7. TMF Calculado (Dias Corridos) */}
-                          <td className="px-1.5 py-1.5 text-center font-bold text-cyan-800 whitespace-nowrap bg-cyan-50/40">
+                          <td className="px-2 py-2.5 text-center font-bold text-cyan-800 whitespace-nowrap bg-cyan-50/40">
                             {computeTmfDays(o.entryDate, o.repairDate)}d
                           </td>
 
                           {/* 8. Entrada (Fixo) */}
-                          <td className="px-2 py-1.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
+                          <td className="px-2 py-2.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
                             {toInputDate(o.entryDate)}
                           </td>
 
                           {/* 9. Diagnóstico (Alerta Regra 1) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isDiagnosisAlert ? 'bg-rose-100/90' : ''}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isDiagnosisAlert ? 'bg-rose-100/90' : ''}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.diagnosisDate)}
@@ -707,7 +837,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 10. E-mail Enviado (Alerta Regra 2) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isEmailSentAlert ? 'bg-rose-100/90' : ''}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isEmailSentAlert ? 'bg-rose-100/90' : ''}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.emailSentDate)}
@@ -721,7 +851,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 11. E-mail Recebido (Alerta Regra 3) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isEmailReceivedAlert ? 'bg-rose-100/90' : ''}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isEmailReceivedAlert ? 'bg-rose-100/90' : ''}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.emailReceivedDate)}
@@ -735,7 +865,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 12. Peças: Pedido (Alerta Regra 4) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isPartsOrderAlert ? 'bg-rose-100/90' : ''}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isPartsOrderAlert ? 'bg-rose-100/90' : ''}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.partsOrderDate)}
@@ -749,7 +879,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 13. Peças: Faturamento (Novo campo crucial para os indicadores) */}
-                          <td className="px-1 py-1 whitespace-nowrap bg-yellow-50/50">
+                          <td className="px-1.5 py-2 whitespace-nowrap bg-yellow-50/50">
                             <input
                               type="date"
                               defaultValue={toInputDate(o.partsInvoiceDate)}
@@ -759,7 +889,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 14. Peças: Cabeça (0 a 10) */}
-                          <td className="px-1 py-1 text-center whitespace-nowrap">
+                          <td className="px-1.5 py-2 text-center whitespace-nowrap">
                             <select
                               value={o.partsHeadQty ?? 0}
                               onChange={(e) => handleAutoSave(o.id, 'partsHeadQty', parseInt(e.target.value, 10))}
@@ -774,7 +904,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 15. Peças: Totais (0 a 30) */}
-                          <td className="px-1 py-1 text-center whitespace-nowrap">
+                          <td className="px-1.5 py-2 text-center whitespace-nowrap">
                             <select
                               value={o.partsTotalQty ?? 0}
                               onChange={(e) => handleAutoSave(o.id, 'partsTotalQty', parseInt(e.target.value, 10))}
@@ -789,7 +919,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 16. Peças: Chegada (Alerta Regra 6) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isPartsArrivalAlert ? 'bg-rose-100/90' : ''}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isPartsArrivalAlert ? 'bg-rose-100/90' : ''}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.partsArrivalDate)}
@@ -803,7 +933,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 17. Peças: Trocar Tinta (Sim / Não) */}
-                          <td className="px-1 py-1 text-center whitespace-nowrap">
+                          <td className="px-1.5 py-2 text-center whitespace-nowrap">
                             <select
                               value={o.partsChangeInk ? 'true' : 'false'}
                               onChange={(e) => handleAutoSave(o.id, 'partsChangeInk', e.target.value === 'true')}
@@ -815,7 +945,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                           {/* 18. Conserto (Alerta Regras 5, 7, 8, 9) */}
-                          <td className={`px-1 py-1 whitespace-nowrap ${alerts.isRepairAlert ? 'bg-rose-100/90' : 'bg-emerald-50/40'}`}>
+                          <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isRepairAlert ? 'bg-rose-100/90' : 'bg-emerald-50/40'}`}>
                             <input
                               type="date"
                               defaultValue={toInputDate(o.repairDate)}
@@ -829,7 +959,7 @@ export default function WorkOrdersPage() {
                           </td>
 
                         {/* 19. 1º Aviso (Alerta Regra 10) */}
-                        <td className={`px-1 py-1 whitespace-nowrap ${alerts.isNotice1Alert ? 'bg-rose-100/90' : ''}`}>
+                        <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isNotice1Alert ? 'bg-rose-100/90' : ''}`}>
                           <input
                             type="date"
                             defaultValue={toInputDate(o.notice1Date)}
@@ -843,7 +973,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 20. 2º Aviso (Alerta Regra 11) */}
-                        <td className={`px-1 py-1 whitespace-nowrap ${alerts.isNotice2Alert ? 'bg-rose-100/90' : ''}`}>
+                        <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isNotice2Alert ? 'bg-rose-100/90' : ''}`}>
                           <input
                             type="date"
                             defaultValue={toInputDate(o.notice2Date)}
@@ -857,7 +987,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 21. 3º Aviso (Alerta Regra 12) */}
-                        <td className={`px-1 py-1 whitespace-nowrap ${alerts.isNotice3Alert ? 'bg-rose-100/90' : ''}`}>
+                        <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isNotice3Alert ? 'bg-rose-100/90' : ''}`}>
                           <input
                             type="date"
                             defaultValue={toInputDate(o.notice3Date)}
@@ -871,7 +1001,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 22. Saída Sistema (Baixa SAP - Alerta Regra 13) */}
-                        <td className={`px-1 py-1 whitespace-nowrap ${alerts.isSystemExitAlert ? 'bg-rose-100/90' : ''}`}>
+                        <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isSystemExitAlert ? 'bg-rose-100/90' : ''}`}>
                           <input
                             type="date"
                             defaultValue={toInputDate(o.systemExitDate)}
@@ -885,7 +1015,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 23. Saída Física (Alerta Regra 14 - Saída do Sistema preenchida sem Saída física) */}
-                        <td className={`px-1 py-1 whitespace-nowrap ${alerts.isExitAlert ? 'bg-rose-100/90' : ''}`}>
+                        <td className={`px-1.5 py-2 whitespace-nowrap ${alerts.isExitAlert ? 'bg-rose-100/90' : ''}`}>
                           <input
                             type="date"
                             defaultValue={toInputDate(o.exitDate)}
@@ -899,7 +1029,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 24. Técnico Responsável */}
-                        <td className="px-1.5 py-1.5 whitespace-nowrap">
+                        <td className="px-2 py-2.5 whitespace-nowrap">
                           <select
                             value={o.technicianId || ''}
                             onChange={(e) => handleAutoSave(o.id, 'technicianId', e.target.value || null)}
@@ -915,7 +1045,7 @@ export default function WorkOrdersPage() {
                         </td>
 
                         {/* 25. Colocar na Ordem de Serviço (Texto Livre) */}
-                        <td className="px-2 py-1 min-w-[200px]">
+                        <td className="px-2.5 py-2 min-w-[200px]">
                           <input
                             type="text"
                             defaultValue={o.notes || ''}
@@ -927,7 +1057,7 @@ export default function WorkOrdersPage() {
 
                         {/* 26. Ações (Editar e Excluir para ADMIN e GERÊNCIA) */}
                         {canDelete && (
-                          <td className="px-2 py-1 text-center whitespace-nowrap border-l border-slate-100">
+                          <td className="px-2 py-2.5 text-center whitespace-nowrap border-l border-slate-100">
                             <div className="flex items-center justify-center gap-1">
                               <button
                                 type="button"

@@ -989,7 +989,7 @@ export async function POST(request: Request) {
     // AÇÃO 8: SALVAR CONFERÊNCIA DE PRODUTOS DA COTAÇÃO
     // ================================================================
     if (action === 'salvar_conferencia') {
-      const { cotacaoId, itens = [] } = body;
+      const { cotacaoId, itens = [], conferidoPor = 'Usuário' } = body;
 
       if (!cotacaoId) {
         return NextResponse.json({ error: 'cotacaoId é obrigatório' }, { status: 400 });
@@ -1014,6 +1014,8 @@ export async function POST(request: Request) {
         data: {
           itens: JSON.stringify(itens),
           status: novoStatus,
+          conferidoPor: String(conferidoPor || 'Usuário'),
+          conferidoEm: new Date(),
         },
       });
 

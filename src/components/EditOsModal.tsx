@@ -165,16 +165,11 @@ export default function EditOsModal({
     }
   } catch {}
 
-  // 1. Dados cadastrais fundamentais: somente Administradores e Gerentes
-  const canEditCore = isAdminOrManager || hasCustomAll;
-
-  // 2. Oficina, Peças & Diagnóstico: Técnicos, Administradores e Gerentes
-  const canEditTechnical = isAdminOrManager || hasCustomAll || isTechnician;
-
-  // 3. Atendimento, E-mails ao cliente, Avisos e Saídas: Atendentes, Administradores e Gerentes
-  const canEditCustomerDesk = isAdminOrManager || hasCustomAll || isAttendant;
-
-  // 4. Campos operacionais (Situação, Local, Atribuição e Laudo/Notas): todos com acesso ao sistema
+  // O usuário solicitou explicitamente:
+  // "Foto 2 preciso que todos os usuários que tenham acesso a essa aplicação possa editar todos os campos desse menu."
+  const canEditCore = true;
+  const canEditTechnical = true;
+  const canEditCustomerDesk = true;
   const canEditOperational = true;
 
   // Cálculos dinâmicos de SLA e TMF para exibição imediata
@@ -423,20 +418,8 @@ export default function EditOsModal({
               <span className="text-[10px] text-cyan-300 font-semibold uppercase tracking-wider">
                 Perfil de Acesso
               </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-white border border-white/20 flex items-center gap-1">
-                {isAdminOrManager ? (
-                  <>
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Edição Total ({userRole})
-                  </>
-                ) : isTechnician ? (
-                  <>
-                    <Wrench className="w-3.5 h-3.5 text-cyan-400" /> Técnico (Oficina & Peças)
-                  </>
-                ) : (
-                  <>
-                    <Truck className="w-3.5 h-3.5 text-amber-300" /> Atendimento (Avisos & Saídas)
-                  </>
-                )}
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 shadow-xs">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Edição Total ({userRole})
               </span>
             </div>
 

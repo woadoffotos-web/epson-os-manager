@@ -326,6 +326,8 @@ model ProductQuotation {
   itens           String   // JSON com lista de itens cotados
   status          String   @default("FINALIZADA") // FINALIZADA, CANCELADA
   criadoPor       String?
+  conferidoPor    String?
+  conferidoEm     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

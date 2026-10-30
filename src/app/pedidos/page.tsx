@@ -33,6 +33,8 @@ import {
   Clock,
   Calendar,
   Trash2,
+  Layers,
+  Copy,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -44,6 +46,17 @@ export default function PedidosPage() {
   // Estados de Cotações em Andamento (Menu 3)
   const [cotacoesAndamentoList, setCotacoesAndamentoList] = useState<any[]>([]);
   const [loadingCotacoesAndamento, setLoadingCotacoesAndamento] = useState(false);
+
+  // Estados do Modal de Escolha de Distribuição por Fornecedor (Separadas vs Todos os Itens)
+  const [isModalEscolhaFornecedoresOpen, setIsModalEscolhaFornecedoresOpen] = useState(false);
+  const [infoEscolhaFornecedores, setInfoEscolhaFornecedores] = useState<{
+    fornecedoresListaCompleta: string[];
+    resumoSeparadas: { fornecedor: string; qtdItens: number; total: number }[];
+    totalItensGeral: number;
+    totalValorGeral: number;
+    formattedItems: any[];
+    supplierMap: Map<string, any[]>;
+  } | null>(null);
 
   // Estados do Modal "Gerar Pedido" a partir de Cotação em Andamento
   const [isGerarPedidoModalOpen, setIsGerarPedidoModalOpen] = useState(false);
@@ -703,20 +716,123 @@ export default function PedidosPage() {
     }, 0);
   }, [itensCotacaoSelecionados]);
 
-  // Gerar Cotação (Foto 4: Divide produtos por fornecedor e salva cotações individuais em "Cotações em Andamento")
+  // Executar a criação das cotações no backend
+  const handleExecutarGerarCotacoes = async (
+    modo: 'SEPARADAS_ORIGINAL' | 'TODOS_ITENS_CADA',
+    customItems?: any[],
+    customSupplierMap?: Map<string, any[]>,
+    customSuppliersList?: string[]
+  ) => {
+    const items = customItems || infoEscolhaFornecedores?.formattedItems || [];
+    const supMap = customSupplierMap || infoEscolhaFornecedores?.supplierMap || new Map();
+    const targetSuppliers =
+      customSuppliersList ||
+      infoEscolhaFornecedores?.fornecedoresListaCompleta ||
+      Array.from(supMap.keys());
+
+    if (items.length === 0) return;
+
+    let cotacoesPayload: any[] = [];
+
+    if (modo === 'SEPARADAS_ORIGINAL') {
+      // Modo 1: Cotações separadas por fornecedor com os produtos que já foram comprados nele
+      cotacoesPayload = Array.from(supMap.entries()).map(([forn, itList]: [string, any]) => {
+        const total = itList.reduce((acc: number, curr: any) => acc + curr.subtotal, 0);
+        return {
+          nomeFornecedor: forn,
+          itens: itList,
+          valorTotal: total,
+          quantidadeItens: itList.length,
+          observacoes: cotacaoObservacoes.trim(),
+        };
+      });
+    } else {
+      // Modo 2: Uma cotação para cada fornecedor com TODOS os produtos selecionados
+      cotacoesPayload = targetSuppliers.map((forn: string) => {
+        const itensCopy = items.map((it: any) => ({
+          ...it,
+          fornecedor: forn,
+        }));
+        const total = itensCopy.reduce((acc: number, curr: any) => acc + curr.subtotal, 0);
+        return {
+          nomeFornecedor: forn,
+          itens: itensCopy,
+          valorTotal: total,
+          quantidadeItens: itensCopy.length,
+          observacoes: cotacaoObservacoes.trim(),
+        };
+      });
+    }
+
+    try {
+      setFinalizingCotacao(true);
+
+      const res = await fetch('/api/pedidos?action=gerar_cotacoes_andamento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cotacoes: cotacoesPayload,
+          criadoPor: currentUser?.name || 'Administrador',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao gerar cotação(ões).');
+        return;
+      }
+
+      // Sucesso: fecha o modal e limpa a tela de montar cotação
+      setIsModalEscolhaFornecedoresOpen(false);
+      setInfoEscolhaFornecedores(null);
+
+      setCotacaoProdutosList((prev) =>
+        prev.map((item) => ({
+          ...item,
+          quantidadePedida: '',
+        }))
+      );
+      setCotacaoNomeFornecedor('');
+      setCotacaoObservacoes('');
+
+      // Limpar rascunho salvo do localStorage
+      try {
+        localStorage.removeItem('epson_cotacao_draft');
+        setRestoredDraftInfo(null);
+      } catch (e) {
+        console.error(e);
+      }
+
+      setSuccessCotacaoMessage(
+        modo === 'SEPARADAS_ORIGINAL'
+          ? `${cotacoesPayload.length} cotação(ões) gerada(s) separadas por fornecedor com sucesso em "Cotações em Andamento"!`
+          : `${cotacoesPayload.length} cotação(ões) gerada(s) contendo todos os produtos para cada fornecedor com sucesso em "Cotações em Andamento"!`
+      );
+      setTimeout(() => setSuccessCotacaoMessage(null), 6000);
+
+      // Atualiza cotações em andamento e muda para a aba Cotações em Andamento
+      await fetchCotacoesAndamento();
+      setActiveTab('cotacoes_andamento');
+    } catch (err) {
+      console.error(err);
+      alert('Falha de comunicação ao gerar cotações.');
+    } finally {
+      setFinalizingCotacao(false);
+    }
+  };
+
+  // Gerar Cotação (Identifica múltiplos fornecedores e abre diálogo de escolha ou confirma)
   const handleGerarCotacao = async () => {
     if (itensCotacaoSelecionados.length === 0) {
       alert('Atenção: Preencha o campo "Qtd a Pedir" em pelo menos um produto antes de gerar a cotação.');
       return;
     }
 
-    // Agrupa os itens por fornecedor
-    const supplierMap = new Map<string, any[]>();
-    for (const item of itensCotacaoSelecionados) {
+    // Formata todos os itens selecionados com quantidade > 0
+    const formattedItems = itensCotacaoSelecionados.map((item) => {
       const qtdPedida = parseFloat(item.quantidadePedida) || 0;
-      if (qtdPedida <= 0) continue;
       const valCot = parseFloat(item.valorCotacao) || 0;
-      const formattedItem = {
+      return {
         produtoId: item.produtoId,
         codigo: item.codigo,
         nome: item.nome,
@@ -728,10 +844,13 @@ export default function PedidosPage() {
         valorCotacao: valCot,
         quantidadePedida: qtdPedida,
         subtotal: qtdPedida * valCot,
-        fornecedores: item.fornecedores,
+        fornecedores: item.fornecedores || [],
       };
+    });
 
-      // Determinar o fornecedor do item
+    // Agrupa os itens por fornecedor onde já foi comprado / vinculado
+    const supplierMap = new Map<string, any[]>();
+    for (const item of formattedItems) {
       let fornNome = 'Fornecedor Geral';
       if (selectedFornecedoresCotacao.length > 0) {
         const matchForn = selectedFornecedoresCotacao.find((sf) =>
@@ -751,80 +870,56 @@ export default function PedidosPage() {
       if (!supplierMap.has(fornNome)) {
         supplierMap.set(fornNome, []);
       }
-      supplierMap.get(fornNome)!.push(formattedItem);
+      supplierMap.get(fornNome)!.push(item);
     }
 
-    const totalFornecedores = supplierMap.size;
-    const msgConfirm =
-      totalFornecedores > 1
-        ? `Identificamos produtos de ${totalFornecedores} fornecedores diferentes. Deseja gerar ${totalFornecedores} cotações individuais em "Cotações em Andamento"?`
-        : `Deseja gerar a cotação para o fornecedor "${Array.from(supplierMap.keys())[0]}" contendo ${itensCotacaoSelecionados.length} produto(s) no total de R$ ${totalCotacaoMontagem.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}?`;
+    // Lista de fornecedores para a cotação comparativa completa
+    const fornecedoresListaCompleta = Array.from(
+      new Set([
+        ...(selectedFornecedoresCotacao.length > 0 ? selectedFornecedoresCotacao : []),
+        ...Array.from(supplierMap.keys()),
+      ])
+    ).filter(Boolean);
 
-    if (!window.confirm(msgConfirm)) {
+    const hasMultiFornecedores =
+      supplierMap.size > 1 || selectedFornecedoresCotacao.length > 1;
+
+    // Se identificou mais de um fornecedor, abre o modal para o usuário escolher o modo
+    if (hasMultiFornecedores) {
+      const resumo = Array.from(supplierMap.entries()).map(([forn, itens]) => ({
+        fornecedor: forn,
+        qtdItens: itens.length,
+        total: itens.reduce((acc, curr) => acc + curr.subtotal, 0),
+      }));
+
+      setInfoEscolhaFornecedores({
+        fornecedoresListaCompleta,
+        resumoSeparadas: resumo,
+        totalItensGeral: formattedItems.length,
+        totalValorGeral: totalCotacaoMontagem,
+        formattedItems,
+        supplierMap,
+      });
+      setIsModalEscolhaFornecedoresOpen(true);
       return;
     }
 
-    try {
-      setFinalizingCotacao(true);
+    // Caso de apenas 1 fornecedor identificado: pergunta confirmação direta
+    const unicoFornecedor =
+      selectedFornecedoresCotacao[0] ||
+      Array.from(supplierMap.keys())[0] ||
+      cotacaoNomeFornecedor.trim() ||
+      'Fornecedor Geral';
 
-      const cotacoesPayload = Array.from(supplierMap.entries()).map(([forn, itens]) => {
-        const total = itens.reduce((acc, curr) => acc + curr.subtotal, 0);
-        return {
-          nomeFornecedor: forn,
-          itens,
-          valorTotal: total,
-          quantidadeItens: itens.length,
-          observacoes: cotacaoObservacoes.trim(),
-        };
-      });
-
-      const res = await fetch('/api/pedidos?action=gerar_cotacoes_andamento', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cotacoes: cotacoesPayload,
-          criadoPor: currentUser?.name || 'Administrador',
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Erro ao gerar cotação(ões).');
-        return;
-      }
-
-      // Sucesso: limpar a tela de montar cotação
-      setCotacaoProdutosList((prev) =>
-        prev.map((item) => ({
-          ...item,
-          quantidadePedida: '',
-        }))
-      );
-      setCotacaoNomeFornecedor('');
-      setCotacaoObservacoes('');
-
-      // Limpar rascunho salvo do localStorage
-      try {
-        localStorage.removeItem('epson_cotacao_draft');
-        setRestoredDraftInfo(null);
-      } catch (e) {
-        console.error(e);
-      }
-
-      setSuccessCotacaoMessage(
-        `${cotacoesPayload.length} cotação(ões) gerada(s) com sucesso em "Cotações em Andamento"!`
-      );
-      setTimeout(() => setSuccessCotacaoMessage(null), 6000);
-
-      // Atualiza cotações em andamento e muda para a aba Cotações em Andamento
-      await fetchCotacoesAndamento();
-      setActiveTab('cotacoes_andamento');
-    } catch (err) {
-      console.error(err);
-      alert('Falha de comunicação ao gerar cotações.');
-    } finally {
-      setFinalizingCotacao(false);
+    if (
+      !window.confirm(
+        `Deseja gerar a cotação para o fornecedor "${unicoFornecedor}" contendo ${formattedItems.length} produto(s) no total de R$ ${totalCotacaoMontagem.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}?`
+      )
+    ) {
+      return;
     }
+
+    await handleExecutarGerarCotacoes('SEPARADAS_ORIGINAL', formattedItems, supplierMap, [unicoFornecedor]);
   };
 
   // Abrir modal de Gerar Pedido a partir de uma Cotação em Andamento
@@ -4571,6 +4666,159 @@ export default function PedidosPage() {
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: ESCOLHA DE DISTRIBUIÇÃO DA COTAÇÃO POR FORNECEDOR       */}
+      {/* ============================================================== */}
+      {isModalEscolhaFornecedoresOpen && infoEscolhaFornecedores && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col">
+            {/* Topo do Modal */}
+            <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center font-bold">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">Distribuição da Cotação por Fornecedor</h3>
+                  <p className="text-xs text-cyan-200">
+                    Identificamos <strong>{infoEscolhaFornecedores.fornecedoresListaCompleta.length} fornecedores</strong> para os <strong>{infoEscolhaFornecedores.totalItensGeral} produtos</strong> selecionados
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalEscolhaFornecedoresOpen(false)}
+                className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Corpo do Modal com as Duas Opções */}
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[80vh]">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-950">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Mais de um fornecedor identificado na montagem da cotação:</span>
+                  <span className="text-[11px] text-amber-900 mt-0.5 block">
+                    Escolha abaixo como deseja que o sistema gere as cotações em <strong>"3. Cotações em Andamento"</strong>.
+                  </span>
+                </div>
+              </div>
+
+              {/* OPÇÃO 1: Cotações Separadas por Fornecedor Original */}
+              <div
+                onClick={() => handleExecutarGerarCotacoes('SEPARADAS_ORIGINAL')}
+                className="p-4 rounded-xl border-2 border-slate-200 hover:border-amber-500 hover:bg-amber-50/20 transition cursor-pointer group shadow-xs space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
+                      1
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900 group-hover:text-amber-800 transition">
+                      Cotações Separadas por Fornecedor (Produtos Vinculados)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 group-hover:bg-amber-100 group-hover:text-amber-900">
+                    {infoEscolhaFornecedores.resumoSeparadas.length} cotações
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 pl-9 leading-relaxed">
+                  Gera cotações separadas para cada fornecedor contendo <strong>apenas os produtos que já foram comprados nele</strong> (distribuição automática dos itens).
+                </p>
+
+                <div className="pl-9 space-y-1">
+                  {infoEscolhaFornecedores.resumoSeparadas.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded border border-slate-200">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-amber-700" />
+                        <span>{r.fornecedor}</span>
+                      </span>
+                      <span className="font-mono text-slate-600">
+                        {r.qtdItens} {r.qtdItens === 1 ? 'item' : 'itens'} &bull; <strong className="text-emerald-700">R$ {r.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pl-9 pt-1">
+                  <button
+                    type="button"
+                    disabled={finalizingCotacao}
+                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {finalizingCotacao ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+                    <span>Gerar Separadas por Fornecedor Original ({infoEscolhaFornecedores.resumoSeparadas.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* OPÇÃO 2: Cotação Completa para Cada Fornecedor */}
+              <div
+                onClick={() => handleExecutarGerarCotacoes('TODOS_ITENS_CADA')}
+                className="p-4 rounded-xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50/20 transition cursor-pointer group shadow-xs space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs">
+                      2
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900 group-hover:text-blue-800 transition">
+                      Cotação Completa para Cada Fornecedor (Todos os Produtos Selecionados)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 group-hover:bg-blue-100 group-hover:text-blue-900">
+                    {infoEscolhaFornecedores.fornecedoresListaCompleta.length} cotações completas
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 pl-9 leading-relaxed">
+                  Gera uma cotação para <strong>cada fornecedor</strong> contendo <strong>TODOS os {infoEscolhaFornecedores.totalItensGeral} produtos selecionados</strong> (R$ {infoEscolhaFornecedores.totalValorGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} em cada uma), ideal para negociar a lista inteira com todos os fornecedores e comparar preços.
+                </p>
+
+                <div className="pl-9 space-y-1">
+                  {infoEscolhaFornecedores.fornecedoresListaCompleta.map((forn, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded border border-slate-200">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                        <span>{forn}</span>
+                      </span>
+                      <span className="font-mono text-slate-600">
+                        {infoEscolhaFornecedores.totalItensGeral} itens &bull; <strong className="text-emerald-700">R$ {infoEscolhaFornecedores.totalValorGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pl-9 pt-1">
+                  <button
+                    type="button"
+                    disabled={finalizingCotacao}
+                    className="w-full py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {finalizingCotacao ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>Gerar Lista Completa para Cada Fornecedor ({infoEscolhaFornecedores.fornecedoresListaCompleta.length})</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsModalEscolhaFornecedoresOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

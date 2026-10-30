@@ -27,7 +27,7 @@ export default function LoginScreen({ onLoginSuccess, availableUsers = [], secur
       setLoading(true);
       setError(null);
 
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/api/auth?action=login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -39,7 +39,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     try {
       sessionStorage.removeItem('epson_tab_session');
       sessionStorage.removeItem('epson_last_activity');
-      await fetch('/api/auth', {
+      await fetch('/api/auth?action=logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout' }),
@@ -204,7 +204,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     sessionStorage.removeItem('epson_tab_session');
     sessionStorage.removeItem('epson_last_activity');
     try {
-      await fetch('/api/auth', {
+      await fetch('/api/auth?action=logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout' }),

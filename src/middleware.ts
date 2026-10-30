@@ -10,12 +10,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 1. Endpoints públicos específicos de autenticação (login, logout, checar sessão própria)
-  const isPublicAuthAction =
-    pathname === '/api/auth' &&
-    ['login', 'logout', 'me'].includes(searchParams.get('action') || '');
-
-  if (isPublicAuthAction) {
+  // 1. O endpoint de autenticação (/api/auth) gerencia diretamente seu próprio ciclo
+  // de login, logout e verificação de permissões administrativas.
+  if (pathname.startsWith('/api/auth')) {
     return NextResponse.next();
   }
 

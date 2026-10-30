@@ -1377,8 +1377,10 @@ export default function PedidosPage() {
 
   return (
     <div className="space-y-5 pb-12">
-      {/* ============================================================== */}
-      {/* CABEÇALHO DO MÓDULO PEDIDO DE PRODUTOS & COTAÇÕES              */}
+      {/* Conteúdo Principal do Painel de Pedidos (Oculto na impressão para emissão limpa da Cotação) */}
+      <div className={`space-y-5 ${isViewModalOpen ? 'print:hidden' : ''}`}>
+        {/* ============================================================== */}
+        {/* CABEÇALHO DO MÓDULO PEDIDO DE PRODUTOS & COTAÇÕES              */}
       {/* ============================================================== */}
       <div className="bg-gradient-to-r from-[#002B49] via-[#073859] to-[#001D33] text-white rounded-2xl p-6 shadow-md border border-cyan-900/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -3660,15 +3662,16 @@ export default function PedidosPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* ============================================================== */}
       {/* MODAL / DOCUMENTO: VISUALIZAR & IMPRIMIR COTAÇÃO               */}
       {/* ============================================================== */}
       {isViewModalOpen && selectedCotacao && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:p-0 print:bg-white print:fixed print:inset-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:static print:block print:w-full print:p-0 print:m-0 print:bg-transparent print:z-auto print:overflow-visible">
           <div
             id="printable-quotation-modal"
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 print:max-h-none print:border-none print:shadow-none print:rounded-none"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 print:w-full print:max-w-none print:max-h-none print:h-auto print:overflow-visible print:border-none print:shadow-none print:rounded-none print:static print:block print:p-0 print:m-0"
           >
             {/* Topo do Modal (Não impresso no papel) */}
             <div className="bg-[#002B49] text-white px-6 py-3.5 flex items-center justify-between shrink-0 print:hidden">
@@ -3705,9 +3708,9 @@ export default function PedidosPage() {
             </div>
 
             {/* Conteúdo Imprimível do Documento */}
-            <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1 text-slate-800 print:p-0 print:overflow-visible">
+            <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1 text-slate-800 print:p-0 print:overflow-visible print:h-auto print:max-h-none print:block">
               {/* Cabeçalho Oficial do Documento */}
-              <div className="flex items-start justify-between border-b border-slate-300 pb-5">
+              <div className="flex items-start justify-between border-b border-slate-300 pb-5 print:break-inside-avoid print-avoid-break">
                 <div>
                   <h1 className="text-2xl font-black text-[#002B49] tracking-tight">INFOGED TECNOLOGIA</h1>
                   <p className="text-xs text-slate-500 font-medium">Soluções Corporativas &bull; Suprimentos &bull; Assistência Técnica</p>
@@ -3728,7 +3731,7 @@ export default function PedidosPage() {
               </div>
 
               {/* Informações do Fornecedor / Destinatário */}
-              <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs print:break-inside-avoid print-avoid-break print:bg-slate-50 print:border-slate-300">
                 <div>
                   <span className="font-bold text-slate-500 uppercase tracking-wider block text-[10px]">
                     Fornecedor / Destinatário
@@ -3752,9 +3755,9 @@ export default function PedidosPage() {
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
                   Itens Requisitados para Cotação (Qtd Pedida &gt; 0)
                 </h4>
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="border border-slate-200 rounded-lg overflow-hidden print:border-slate-300 print:rounded-none print:overflow-visible">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
+                    <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700 print:bg-slate-100">
                       <tr>
                         <th className="p-2 w-10 text-center">Item</th>
                         <th className="p-2 w-28">Código Interno</th>
@@ -3773,7 +3776,7 @@ export default function PedidosPage() {
                           const sub = qtd * vUnit;
 
                           return (
-                            <tr key={i} className="hover:bg-slate-50">
+                            <tr key={i} className="hover:bg-slate-50 print:break-inside-avoid print-avoid-break">
                               <td className="p-2 text-center text-slate-500 font-mono">{i + 1}</td>
                               <td className="p-2 font-mono font-bold text-slate-800">{item.codigo}</td>
                               <td className="p-2 font-medium text-slate-900">{item.nome}</td>
@@ -3802,7 +3805,7 @@ export default function PedidosPage() {
               </div>
 
               {/* Totalizador */}
-              <div className="flex justify-end pt-3">
+              <div className="flex justify-end pt-3 print:break-inside-avoid print-avoid-break">
                 <div className="w-64 p-3 rounded-xl bg-slate-50 border border-slate-300 space-y-1.5 text-xs">
                   <div className="flex justify-between text-slate-600">
                     <span>Total de Itens:</span>
@@ -3818,7 +3821,7 @@ export default function PedidosPage() {
               </div>
 
               {/* Rodapé de Assinatura para Impressão */}
-              <div className="pt-10 border-t border-slate-300 grid grid-cols-2 gap-8 text-center text-xs text-slate-600 mt-8">
+              <div className="pt-10 border-t border-slate-300 grid grid-cols-2 gap-8 text-center text-xs text-slate-600 mt-8 print:break-inside-avoid print-avoid-break">
                 <div>
                   <div className="border-t border-slate-400 w-48 mx-auto mb-1" />
                   <span>Responsável Compras (INFOGED)</span>
@@ -3856,7 +3859,7 @@ export default function PedidosPage() {
       {/* MODAL: INSERIR NOVO PRODUTO NA COTAÇÃO (6 DÍGITOS AUTOMÁTICO)  */}
       {/* ============================================================== */}
       {isNovoProdutoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-200">
             {/* Cabeçalho do Modal */}
             <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-white px-5 py-4 flex items-center justify-between">
@@ -4150,7 +4153,7 @@ export default function PedidosPage() {
       {/* MODAL: CONFERÊNCIA DE PRODUTOS DA COTAÇÃO                      */}
       {/* ============================================================== */}
       {isConferenciaModalOpen && cotacaoEmConferencia && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
             {/* Topo do Modal */}
             <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
@@ -4419,7 +4422,7 @@ export default function PedidosPage() {
       {/* MODAL: GERAR PEDIDO A PARTIR DE COTAÇÃO EM ANDAMENTO          */}
       {/* ============================================================== */}
       {isGerarPedidoModalOpen && cotacaoParaPedido && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
             {/* Topo do Modal */}
             <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
@@ -4675,7 +4678,7 @@ export default function PedidosPage() {
       {/* MODAL: ESCOLHA DE DISTRIBUIÇÃO DA COTAÇÃO POR FORNECEDOR       */}
       {/* ============================================================== */}
       {isModalEscolhaFornecedoresOpen && infoEscolhaFornecedores && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col">
             {/* Topo do Modal */}
             <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">

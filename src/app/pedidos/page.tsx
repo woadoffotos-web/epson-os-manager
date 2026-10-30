@@ -35,6 +35,10 @@ import {
   Trash2,
   Layers,
   Copy,
+  Edit3,
+  Scale,
+  ArrowLeftRight,
+  Check,
 } from 'lucide-react';
 
 export default function PedidosPage() {
@@ -64,6 +68,39 @@ export default function PedidosPage() {
   const [itensParaPedido, setItensParaPedido] = useState<any[]>([]);
   const [observacoesPedido, setObservacoesPedido] = useState('');
   const [savingGerarPedido, setSavingGerarPedido] = useState(false);
+
+  // Estados do Modal "Editar Cotação" em Andamento
+  const [isEditarCotacaoModalOpen, setIsEditarCotacaoModalOpen] = useState(false);
+  const [cotacaoEmEdicao, setCotacaoEmEdicao] = useState<any | null>(null);
+  const [itensEmEdicao, setItensEmEdicao] = useState<any[]>([]);
+  const [observacoesEdicao, setObservacoesEdicao] = useState('');
+  const [savingEdicaoCotacao, setSavingEdicaoCotacao] = useState(false);
+
+  // Estados do Modo Comparação de Cotações
+  const [modoComparacao, setModoComparacao] = useState(false);
+  const [selectedCotacoesParaComparar, setSelectedCotacoesParaComparar] = useState<string[]>([]);
+  const [isModalComparacaoOpen, setIsModalComparacaoOpen] = useState(false);
+  const [dadosComparacao, setDadosComparacao] = useState<{
+    fornecedores: { id: string; numero: string; nomeFornecedor: string }[];
+    produtos: {
+      codigo: string;
+      nome: string;
+      nomeGrupo?: string;
+      reservas?: string;
+      valores: {
+        [cotacaoId: string]: {
+          valorCotacao: number;
+          quantidadePedida: number;
+          subtotal: number;
+          originalQtd: number;
+          presenteNaCotacao: boolean;
+        };
+      };
+      menorPreco: number | null;
+      fornecedorMenorPrecoId: string | null;
+    }[];
+  } | null>(null);
+  const [savingGerarPedidosComparativo, setSavingGerarPedidosComparativo] = useState(false);
 
   // Campo de pesquisa dentro do resultado apresentado em Montar Cotação
   const [buscaFiltroResultado, setBuscaFiltroResultado] = useState('');
@@ -1041,6 +1078,443 @@ export default function PedidosPage() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Abrir Modal de Edição Direta de Cotação em Andamento (Valores e Quantidades)
+  const handleOpenEditarCotacaoModal = (cotacao: any) => {
+    setCotacaoEmEdicao(cotacao);
+    let rawItens: any[] = [];
+    try {
+      rawItens = Array.isArray(cotacao.itens) ? cotacao.itens : JSON.parse(cotacao.itens || '[]');
+    } catch {
+      rawItens = [];
+    }
+
+    const itemsFormatted = rawItens.map((it: any) => {
+      const q = parseFloat(it.quantidadePedida) || 0;
+      const v = parseFloat(it.valorCotacao ?? it.valorUltimaCompra) || 0;
+      return {
+        ...it,
+        valorCotacao: v,
+        quantidadePedida: q,
+        subtotal: q * v,
+      };
+    });
+
+    setItensEmEdicao(itemsFormatted);
+    setObservacoesEdicao(cotacao.observacoes || '');
+    setIsEditarCotacaoModalOpen(true);
+  };
+
+  // Atualizar item no modal de Edição de Cotação
+  const handleUpdateItemEdicao = (produtoIdOrCodigo: string, field: 'valorCotacao' | 'quantidadePedida', value: number) => {
+    setItensEmEdicao((prev) =>
+      prev.map((it) => {
+        if (it.produtoId === produtoIdOrCodigo || it.codigo === produtoIdOrCodigo) {
+          const updated = { ...it, [field]: value };
+          const q = field === 'quantidadePedida' ? value : parseFloat(it.quantidadePedida) || 0;
+          const v = field === 'valorCotacao' ? value : parseFloat(it.valorCotacao) || 0;
+          updated.subtotal = q * v;
+          return updated;
+        }
+        return it;
+      })
+    );
+  };
+
+  // Salvar alterações na Cotação em Andamento
+  const handleSalvarEdicaoCotacao = async () => {
+    if (!cotacaoEmEdicao) return;
+    try {
+      setSavingEdicaoCotacao(true);
+      const res = await fetch('/api/pedidos?action=editar_cotacao_andamento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cotacaoId: cotacaoEmEdicao.id,
+          itens: itensEmEdicao,
+          observacoes: observacoesEdicao.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao salvar alterações da cotação.');
+        return;
+      }
+
+      setIsEditarCotacaoModalOpen(false);
+      setCotacaoEmEdicao(null);
+      setSuccessCotacaoMessage(data.message || 'Cotação atualizada com sucesso!');
+      setTimeout(() => setSuccessCotacaoMessage(null), 5000);
+      await fetchCotacoesAndamento();
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao comunicar com o servidor.');
+    } finally {
+      setSavingEdicaoCotacao(false);
+    }
+  };
+
+  // Alternar seleção de cotação para o Comparativo
+  const toggleCotacaoParaComparar = (cotacaoId: string) => {
+    setSelectedCotacoesParaComparar((prev) =>
+      prev.includes(cotacaoId) ? prev.filter((id) => id !== cotacaoId) : [...prev, cotacaoId]
+    );
+  };
+
+  // Selecionar todas as cotações em andamento para comparar
+  const handleSelecionarTodasParaComparar = () => {
+    setSelectedCotacoesParaComparar(cotacoesAndamentoList.map((c) => c.id));
+  };
+
+  // Limpar seleção de cotações para comparar
+  const handleLimparSelecaoComparacao = () => {
+    setSelectedCotacoesParaComparar([]);
+  };
+
+  // Iniciar Comparativo de Cotações (Confronto de Fornecedores e Preços)
+  const handleIniciarComparacao = () => {
+    const cotacoesSelecionadas = cotacoesAndamentoList.filter((c) =>
+      selectedCotacoesParaComparar.includes(c.id)
+    );
+
+    if (cotacoesSelecionadas.length < 2) {
+      alert('Por favor, selecione ao menos 2 cotações para comparar preços e fornecedores.');
+      return;
+    }
+
+    const fornecedores = cotacoesSelecionadas.map((c) => ({
+      id: c.id,
+      numero: c.numero,
+      nomeFornecedor: c.nomeFornecedor || 'Fornecedor',
+    }));
+
+    // Mapeia todos os produtos únicos de todas as cotações selecionadas
+    const produtosMap = new Map<
+      string,
+      {
+        codigo: string;
+        nome: string;
+        nomeGrupo?: string;
+        reservas?: string;
+        valores: {
+          [cotacaoId: string]: {
+            valorCotacao: number;
+            quantidadePedida: number;
+            subtotal: number;
+            originalQtd: number;
+            presenteNaCotacao: boolean;
+          };
+        };
+      }
+    >();
+
+    for (const cotacao of cotacoesSelecionadas) {
+      let itensList: any[] = [];
+      try {
+        itensList = Array.isArray(cotacao.itens) ? cotacao.itens : JSON.parse(cotacao.itens || '[]');
+      } catch {
+        itensList = [];
+      }
+
+      for (const item of itensList) {
+        const codKey = String(item.codigo || item.produtoId || item.nome).trim();
+        if (!produtosMap.has(codKey)) {
+          produtosMap.set(codKey, {
+            codigo: item.codigo || codKey,
+            nome: item.nome || 'Produto',
+            nomeGrupo: item.nomeGrupo || '',
+            reservas: item.reservas || '',
+            valores: {},
+          });
+        }
+
+        const prod = produtosMap.get(codKey)!;
+        const q = parseFloat(item.quantidadePedida) || 0;
+        const v = parseFloat(item.valorCotacao ?? item.valorUltimaCompra) || 0;
+
+        prod.valores[cotacao.id] = {
+          valorCotacao: v,
+          quantidadePedida: q,
+          subtotal: q * v,
+          originalQtd: q,
+          presenteNaCotacao: true,
+        };
+      }
+    }
+
+    // Calcula menor preço para cada produto entre os fornecedores participantes
+    const produtosCalculados = Array.from(produtosMap.values()).map((prod) => {
+      let menorPreco: number | null = null;
+      let fornecedorMenorPrecoId: string | null = null;
+
+      for (const forn of fornecedores) {
+        const valInfo = prod.valores[forn.id];
+        if (valInfo && valInfo.presenteNaCotacao && valInfo.valorCotacao > 0) {
+          if (menorPreco === null || valInfo.valorCotacao < menorPreco) {
+            menorPreco = valInfo.valorCotacao;
+            fornecedorMenorPrecoId = forn.id;
+          }
+        }
+      }
+
+      return {
+        ...prod,
+        menorPreco,
+        fornecedorMenorPrecoId,
+      };
+    });
+
+    setDadosComparacao({
+      fornecedores,
+      produtos: produtosCalculados,
+    });
+
+    setIsModalComparacaoOpen(true);
+  };
+
+  // Atualizar campo na tabela de Comparação (quantidade a pedir ou valor cotado)
+  const handleUpdateItemComparacao = (
+    codigo: string,
+    cotacaoId: string,
+    field: 'valorCotacao' | 'quantidadePedida',
+    value: number
+  ) => {
+    if (!dadosComparacao) return;
+
+    setDadosComparacao((prev) => {
+      if (!prev) return null;
+      const novosProdutos = prev.produtos.map((p) => {
+        if (p.codigo === codigo) {
+          const valObj = p.valores[cotacaoId] || {
+            valorCotacao: 0,
+            quantidadePedida: 0,
+            subtotal: 0,
+            originalQtd: 0,
+            presenteNaCotacao: true,
+          };
+          const updatedVal = {
+            ...valObj,
+            [field]: value,
+            presenteNaCotacao: true,
+          };
+          const q = field === 'quantidadePedida' ? value : updatedVal.quantidadePedida;
+          const v = field === 'valorCotacao' ? value : updatedVal.valorCotacao;
+          updatedVal.subtotal = q * v;
+
+          const novosValores = { ...p.valores, [cotacaoId]: updatedVal };
+
+          // Recalcula menor preço
+          let menorPreco: number | null = null;
+          let fornecedorMenorPrecoId: string | null = null;
+          for (const forn of prev.fornecedores) {
+            const vInfo = novosValores[forn.id];
+            if (vInfo && vInfo.presenteNaCotacao && vInfo.valorCotacao > 0) {
+              if (menorPreco === null || vInfo.valorCotacao < menorPreco) {
+                menorPreco = vInfo.valorCotacao;
+                fornecedorMenorPrecoId = forn.id;
+              }
+            }
+          }
+
+          return {
+            ...p,
+            valores: novosValores,
+            menorPreco,
+            fornecedorMenorPrecoId,
+          };
+        }
+        return p;
+      });
+
+      return {
+        ...prev,
+        produtos: novosProdutos,
+      };
+    });
+  };
+
+  // Atalho inteligente: Atribuir automaticamente as quantidades ao fornecedor mais barato
+  const handleAtribuirMenorPrecoParaTodos = () => {
+    if (!dadosComparacao) return;
+    setDadosComparacao((prev) => {
+      if (!prev) return null;
+      const novosProdutos = prev.produtos.map((p) => {
+        if (!p.fornecedorMenorPrecoId) return p;
+
+        // Identifica a quantidade solicitada original máxima
+        let maxQtd = 0;
+        for (const forn of prev.fornecedores) {
+          const valObj = p.valores[forn.id];
+          if (valObj && valObj.originalQtd > maxQtd) {
+            maxQtd = valObj.originalQtd;
+          }
+        }
+        if (maxQtd === 0) maxQtd = 1;
+
+        const novosValores: any = {};
+        for (const forn of prev.fornecedores) {
+          const valObj = p.valores[forn.id] || {
+            valorCotacao: 0,
+            quantidadePedida: 0,
+            subtotal: 0,
+            originalQtd: 0,
+            presenteNaCotacao: false,
+          };
+          const isMenor = forn.id === p.fornecedorMenorPrecoId;
+          const novaQtd = isMenor ? maxQtd : 0;
+          novosValores[forn.id] = {
+            ...valObj,
+            quantidadePedida: novaQtd,
+            subtotal: novaQtd * valObj.valorCotacao,
+          };
+        }
+
+        return {
+          ...p,
+          valores: novosValores,
+        };
+      });
+
+      return {
+        ...prev,
+        produtos: novosProdutos,
+      };
+    });
+  };
+
+  // Atalho: Zerar todas as quantidades da tabela comparativa
+  const handleZerarTodasQuantidadesComparativo = () => {
+    if (!dadosComparacao) return;
+    setDadosComparacao((prev) => {
+      if (!prev) return null;
+      const novosProdutos = prev.produtos.map((p) => {
+        const novosValores: any = {};
+        for (const forn of prev.fornecedores) {
+          const valObj = p.valores[forn.id] || {
+            valorCotacao: 0,
+            quantidadePedida: 0,
+            subtotal: 0,
+            originalQtd: 0,
+            presenteNaCotacao: false,
+          };
+          novosValores[forn.id] = {
+            ...valObj,
+            quantidadePedida: 0,
+            subtotal: 0,
+          };
+        }
+        return {
+          ...p,
+          valores: novosValores,
+        };
+      });
+
+      return {
+        ...prev,
+        produtos: novosProdutos,
+      };
+    });
+  };
+
+  // Confirmar e Gerar Pedidos a partir do Comparativo (Apenas itens com Qtd > 0 por fornecedor)
+  const handleConfirmarGerarPedidosComparativo = async () => {
+    if (!dadosComparacao) return;
+
+    // Constrói os pedidos separados por fornecedor
+    const pedidosPayload: any[] = [];
+    let totalGeralItens = 0;
+    let totalGeralValor = 0;
+
+    for (const forn of dadosComparacao.fornecedores) {
+      const itensDoFornecedor: any[] = [];
+      let totalFornecedor = 0;
+
+      for (const prod of dadosComparacao.produtos) {
+        const valObj = prod.valores[forn.id];
+        if (valObj && valObj.quantidadePedida > 0) {
+          itensDoFornecedor.push({
+            codigo: prod.codigo,
+            nome: prod.nome,
+            nomeGrupo: prod.nomeGrupo,
+            reservas: prod.reservas,
+            valorCotacao: valObj.valorCotacao,
+            quantidadePedida: valObj.quantidadePedida,
+            subtotal: valObj.quantidadePedida * valObj.valorCotacao,
+          });
+          totalFornecedor += valObj.quantidadePedida * valObj.valorCotacao;
+        }
+      }
+
+      if (itensDoFornecedor.length > 0) {
+        pedidosPayload.push({
+          cotacaoId: forn.id,
+          nomeFornecedor: forn.nomeFornecedor,
+          itens: itensDoFornecedor,
+          valorTotal: totalFornecedor,
+          observacoes: 'Gerado a partir do comparativo de cotações',
+        });
+        totalGeralItens += itensDoFornecedor.length;
+        totalGeralValor += totalFornecedor;
+      }
+    }
+
+    if (pedidosPayload.length === 0) {
+      alert(
+        'Atenção: Nenhum produto está com Quantidade a Pedir maior que zero em nenhum fornecedor. Preencha as quantidades desejadas antes de gerar os pedidos.'
+      );
+      return;
+    }
+
+    const resumoFornecedoresTexto = pedidosPayload
+      .map(
+        (p) =>
+          `• ${p.nomeFornecedor}: ${p.itens.length} produto(s) - R$ ${p.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      )
+      .join('\n');
+
+    const confirmou = window.confirm(
+      `Deseja gerar os Pedidos de Compra para os seguintes fornecedores?\n\n${resumoFornecedoresTexto}\n\nTotal Geral: R$ ${totalGeralValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\nOs pedidos serão enviados para o menu "4. Pedidos Feitos".`
+    );
+
+    if (!confirmou) return;
+
+    try {
+      setSavingGerarPedidosComparativo(true);
+      const res = await fetch('/api/pedidos?action=gerar_pedidos_comparativo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pedidos: pedidosPayload,
+          criadoPor: currentUser?.name || 'Administrador',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao gerar pedidos da comparação.');
+        return;
+      }
+
+      setIsModalComparacaoOpen(false);
+      setDadosComparacao(null);
+      setModoComparacao(false);
+      setSelectedCotacoesParaComparar([]);
+
+      setSuccessCotacaoMessage(
+        data.message || `${pedidosPayload.length} pedido(s) gerado(s) com sucesso em Pedidos Feitos!`
+      );
+      setTimeout(() => setSuccessCotacaoMessage(null), 6000);
+
+      await Promise.all([fetchCotacoesAndamento(), fetchCotacoesFeitas()]);
+      setActiveTab('pedidos_feitos');
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao comunicar com o servidor.');
+    } finally {
+      setSavingGerarPedidosComparativo(false);
     }
   };
 
@@ -3022,6 +3496,31 @@ export default function PedidosPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => {
+                  const novoModo = !modoComparacao;
+                  setModoComparacao(novoModo);
+                  if (!novoModo) {
+                    setSelectedCotacoesParaComparar([]);
+                  }
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                  modoComparacao
+                    ? 'bg-purple-700 hover:bg-purple-800 text-white ring-2 ring-purple-300'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
+                }`}
+                title="Ativar modo para selecionar e comparar cotações de fornecedores"
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>{modoComparacao ? 'Sair da Comparação' : 'Comparar Cotações'}</span>
+                {selectedCotacoesParaComparar.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-white text-purple-900 rounded-full text-[10px] font-black">
+                    {selectedCotacoesParaComparar.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
                 onClick={fetchCotacoesAndamento}
                 disabled={loadingCotacoesAndamento}
                 className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
@@ -3031,6 +3530,56 @@ export default function PedidosPage() {
               </button>
             </div>
           </div>
+
+          {/* Barra Informativa do Modo Comparação */}
+          {modoComparacao && (
+            <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-[#002B49] text-white rounded-xl p-4 shadow-md flex flex-wrap items-center justify-between gap-3 border border-purple-500/30 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-400/30 flex items-center justify-center font-bold">
+                  <Scale className="w-5 h-5 text-purple-300" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-purple-200">
+                    Modo Comparação de Fornecedores Ativo
+                  </h4>
+                  <p className="text-xs text-purple-100/90 mt-0.5">
+                    Marque as caixas de seleção à esquerda de cada cotação que deseja comparar.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleSelecionarTodasParaComparar}
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  Selecionar Todas ({cotacoesAndamentoList.length})
+                </button>
+
+                {selectedCotacoesParaComparar.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleLimparSelecaoComparacao}
+                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-purple-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleIniciarComparacao}
+                  disabled={selectedCotacoesParaComparar.length < 2}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 rounded-lg text-xs font-black transition flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Scale className="w-4 h-4 text-slate-950" />
+                  <span>Seguir Comparação ({selectedCotacoesParaComparar.length})</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {loadingCotacoesAndamento ? (
             <div className="bg-white rounded-xl p-12 text-center text-slate-500 border border-slate-200">
@@ -3068,11 +3617,30 @@ export default function PedidosPage() {
                 return (
                   <div
                     key={cotacao.id}
-                    className="bg-white rounded-xl shadow-xs border border-slate-200 hover:border-amber-300 transition overflow-hidden"
+                    className={`bg-white rounded-xl shadow-xs border transition overflow-hidden ${
+                      selectedCotacoesParaComparar.includes(cotacao.id)
+                        ? 'border-purple-500 ring-2 ring-purple-400 bg-purple-50/20'
+                        : 'border-slate-200 hover:border-amber-300'
+                    }`}
                   >
                     {/* Topo do Card da Cotação */}
                     <div className="p-4 bg-gradient-to-r from-slate-50 via-amber-50/30 to-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
+                        {/* Caixinha de Seleção para Comparativo */}
+                        {modoComparacao && (
+                          <div className="flex items-center pr-1 animate-in fade-in zoom-in-95 duration-150">
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none bg-purple-100/80 hover:bg-purple-200/90 border border-purple-400/80 px-2.5 py-1.5 rounded-lg transition shadow-xs">
+                              <input
+                                type="checkbox"
+                                checked={selectedCotacoesParaComparar.includes(cotacao.id)}
+                                onChange={() => toggleCotacaoParaComparar(cotacao.id)}
+                                className="w-4 h-4 text-purple-600 rounded border-purple-400 focus:ring-purple-500 cursor-pointer"
+                              />
+                              <span className="text-[11px] font-black text-purple-950">Comparar</span>
+                            </label>
+                          </div>
+                        )}
+
                         <span className="px-2.5 py-1 rounded-lg bg-[#002B49] text-white font-mono font-black text-xs shadow-xs">
                           Cotação #{cotacao.numero}
                         </span>
@@ -3094,13 +3662,24 @@ export default function PedidosPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3">
                         <div className="text-right">
                           <span className="text-[11px] text-slate-500 block">Total Estimado</span>
                           <span className="text-sm font-black font-mono text-emerald-700">
                             R$ {(cotacao.valorTotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
+
+                        {/* Botão EDITAR COTAÇÃO (Valores e Quantidades) */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditarCotacaoModal(cotacao)}
+                          className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          title="Editar valores e quantidades dos produtos desta cotação"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-blue-200" />
+                          <span>Editar</span>
+                        </button>
 
                         {/* Botão GERAR PEDIDO no final de cada cotação */}
                         <button
@@ -4822,6 +5401,495 @@ export default function PedidosPage() {
               >
                 Cancelar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: EDITAR COTAÇÃO EM ANDAMENTO (VALORES E QUANTIDADES)     */}
+      {/* ============================================================== */}
+      {isEditarCotacaoModalOpen && cotacaoEmEdicao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Topo do Modal */}
+            <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-600/30 flex items-center justify-center font-bold text-blue-300">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <span>Editar Cotação #{cotacaoEmEdicao.numero}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      Em Andamento
+                    </span>
+                  </h3>
+                  <p className="text-xs text-cyan-200">
+                    Fornecedor: <strong>{cotacaoEmEdicao.nomeFornecedor}</strong> &bull; Altere os valores cotados e quantidades a pedir
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditarCotacaoModalOpen(false)}
+                className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Informações Resumidas */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 shrink-0">
+              {(() => {
+                const totalCalculado = itensEmEdicao.reduce((acc, curr) => {
+                  const q = parseFloat(curr.quantidadePedida) || 0;
+                  const v = parseFloat(curr.valorCotacao) || 0;
+                  return acc + q * v;
+                }, 0);
+                const totalItens = itensEmEdicao.length;
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Fornecedor</span>
+                      <span className="font-bold text-slate-800 truncate block mt-0.5" title={cotacaoEmEdicao.nomeFornecedor}>
+                        {cotacaoEmEdicao.nomeFornecedor}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Data de Criação</span>
+                      <span className="font-bold text-slate-800 block mt-0.5">
+                        {new Date(cotacaoEmEdicao.createdAt).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Total de Itens</span>
+                      <span className="font-bold text-slate-800 block mt-0.5">
+                        {totalItens} produto(s)
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Valor Total Atual</span>
+                      <span className="font-mono font-black text-emerald-700 block mt-0.5 text-sm">
+                        R$ {totalCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Tabela de Produtos da Cotação */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-[#002B49] text-white">
+                    <tr className="text-[11px]">
+                      <th className="p-2.5 w-10 text-center">#</th>
+                      <th className="p-2.5 w-24">CÓDIGO</th>
+                      <th className="p-2.5 min-w-[200px]">NOME DO PRODUTO</th>
+                      <th className="p-2.5 min-w-[140px]">RESERVAS (OS / VENDA)</th>
+                      <th className="p-2.5 text-center w-36 bg-[#003B66]">VALOR COTAÇÃO (R$)</th>
+                      <th className="p-2.5 text-center w-32 bg-amber-950 text-amber-200">QTD A PEDIR</th>
+                      <th className="p-2.5 text-right w-32 bg-[#00233D]">SUBTOTAL</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {itensEmEdicao.map((item, idx) => {
+                      const qPed = parseFloat(item.quantidadePedida) || 0;
+                      const vCot = parseFloat(item.valorCotacao) || 0;
+                      const subtotal = qPed * vCot;
+
+                      return (
+                        <tr key={item.produtoId || item.codigo || idx} className="hover:bg-slate-50 transition">
+                          <td className="p-2.5 text-center font-mono text-slate-500">{idx + 1}</td>
+                          <td className="p-2.5 font-mono font-bold text-[#002B49] whitespace-nowrap">
+                            {item.codigo}
+                          </td>
+                          <td className="p-2.5">
+                            <span className="font-semibold text-slate-900 block leading-tight">{item.nome}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{item.nomeGrupo || item.grupo || '-'}</span>
+                          </td>
+                          <td className="p-2.5 text-xs">
+                            {item.reservas ? (
+                              <span className="font-semibold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-200 block truncate" title={item.reservas}>
+                                {item.reservas}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center bg-cyan-50/20">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={item.valorCotacao ?? ''}
+                              onChange={(e) =>
+                                handleUpdateItemEdicao(
+                                  item.produtoId || item.codigo,
+                                  'valorCotacao',
+                                  Math.max(0, parseFloat(e.target.value) || 0)
+                                )
+                              }
+                              className="w-full text-right font-mono font-bold text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                            />
+                          </td>
+                          <td className="p-2.5 text-center bg-amber-50/20">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={item.quantidadePedida ?? ''}
+                              onChange={(e) =>
+                                handleUpdateItemEdicao(
+                                  item.produtoId || item.codigo,
+                                  'quantidadePedida',
+                                  Math.max(0, parseFloat(e.target.value) || 0)
+                                )
+                              }
+                              className="w-full text-center font-mono font-bold text-xs bg-white border border-amber-300 rounded-lg px-2 py-1.5 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-amber-950"
+                            />
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold text-slate-900">
+                            R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Observações da Cotação */}
+              <div className="mt-4">
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Observações da Cotação
+                </label>
+                <textarea
+                  value={observacoesEdicao}
+                  onChange={(e) => setObservacoesEdicao(e.target.value)}
+                  placeholder="Observações sobre prazo de entrega, condições de frete ou pagamento do fornecedor..."
+                  rows={2}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Rodapé do Modal de Edição */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsEditarCotacaoModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSalvarEdicaoCotacao}
+                disabled={savingEdicaoCotacao}
+                className="px-6 py-2.5 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-md flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                {savingEdicaoCotacao ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Salvar Cotação</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: COMPARATIVO DE COTAÇÕES POR FORNECEDOR                  */}
+      {/* ============================================================== */}
+      {isModalComparacaoOpen && dadosComparacao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-150 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Topo do Modal */}
+            <div className="bg-[#002B49] text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-600/30 flex items-center justify-center font-bold text-purple-300">
+                  <Scale className="w-5 h-5 text-purple-300" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <span>Comparativo de Cotações entre Fornecedores</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-400/20 text-purple-300 border border-purple-400/30">
+                      {dadosComparacao.fornecedores.length} Fornecedores
+                    </span>
+                  </h3>
+                  <p className="text-xs text-cyan-200">
+                    O <strong>menor preço</strong> de cada produto está destacado em <strong>verde</strong>. Digite as quantidades a pedir em cada fornecedor para gerar os pedidos correspondentes.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalComparacaoOpen(false)}
+                className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Barra de Ações Rápidas & Fornecedores */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              {/* Badges dos Fornecedores Participantes */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Fornecedores:
+                </span>
+                {dadosComparacao.fornecedores.map((forn) => (
+                  <span
+                    key={forn.id}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800 shadow-2xs"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                    <span>{forn.nomeFornecedor}</span>
+                    <span className="text-[10px] font-mono text-slate-500">(#{forn.numero})</span>
+                  </span>
+                ))}
+              </div>
+
+              {/* Botões de Ação Rápida */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAtribuirMenorPrecoParaTodos}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Coloca a quantidade solicitada no fornecedor com o menor preço e zera nos outros"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Pedir nos Menores Preços</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleZerarTodasQuantidadesComparativo}
+                  className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                  title="Zera todas as quantidades a pedir para preenchimento manual"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Zerar Qtds</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Tabela Comparativa de Produtos */}
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-[#002B49] text-white">
+                    <tr>
+                      <th className="p-2.5 w-10 text-center border-r border-slate-700/60" rowSpan={2}>#</th>
+                      <th className="p-2.5 w-24 border-r border-slate-700/60" rowSpan={2}>CÓDIGO</th>
+                      <th className="p-2.5 min-w-[220px] border-r border-slate-700/60" rowSpan={2}>DESCRIÇÃO DO PRODUTO</th>
+                      {dadosComparacao.fornecedores.map((forn) => (
+                        <th
+                          key={forn.id}
+                          colSpan={2}
+                          className="p-2.5 text-center font-bold border-r border-slate-700/60 bg-[#003B66]"
+                        >
+                          <div className="flex items-center justify-center gap-1.5 truncate">
+                            <Building2 className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                            <span className="truncate">{forn.nomeFornecedor}</span>
+                            <span className="text-[10px] text-cyan-200 font-mono font-normal">(#{forn.numero})</span>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="bg-[#00233D] text-[10px] text-cyan-200 font-bold uppercase tracking-wider">
+                      {dadosComparacao.fornecedores.map((forn) => (
+                        <React.Fragment key={`sub-${forn.id}`}>
+                          <th className="p-1.5 text-center w-32 border-r border-slate-700/40">VALOR COTADO</th>
+                          <th className="p-1.5 text-center w-24 border-r border-slate-700/60 text-amber-200">QTD A PEDIR</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {dadosComparacao.produtos.map((p, idx) => {
+                      return (
+                        <tr key={p.codigo || idx} className="hover:bg-slate-50 transition">
+                          <td className="p-2.5 text-center font-mono text-slate-400 border-r border-slate-100">{idx + 1}</td>
+                          <td className="p-2.5 font-mono font-bold text-[#002B49] whitespace-nowrap border-r border-slate-100">
+                            {p.codigo}
+                          </td>
+                          <td className="p-2.5 border-r border-slate-100">
+                            <span className="font-semibold text-slate-900 block leading-tight">{p.nome}</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {p.nomeGrupo && (
+                                <span className="text-[10px] text-slate-400 block">{p.nomeGrupo}</span>
+                              )}
+                              {p.reservas && (
+                                <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200" title={p.reservas}>
+                                  {p.reservas}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {dadosComparacao.fornecedores.map((forn) => {
+                            const valObj = p.valores[forn.id];
+                            const presente = valObj && valObj.presenteNaCotacao;
+                            const preco = valObj?.valorCotacao || 0;
+                            const isMenor = presente && p.menorPreco !== null && preco === p.menorPreco && preco > 0;
+                            const qtd = valObj?.quantidadePedida || 0;
+
+                            return (
+                              <React.Fragment key={`cell-${forn.id}-${p.codigo}`}>
+                                {/* Coluna Valor Cotado */}
+                                <td className={`p-2 text-center border-r border-slate-100 ${isMenor ? 'bg-emerald-50/70' : ''}`}>
+                                  {presente ? (
+                                    isMenor ? (
+                                      <div className="bg-emerald-100 text-emerald-950 font-black border border-emerald-400 rounded-lg px-2 py-1 shadow-2xs flex items-center justify-between gap-1">
+                                        <span className="font-mono text-xs">
+                                          R$ {preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                        <span className="text-[9px] bg-emerald-600 text-white uppercase px-1.5 py-0.2 rounded font-black flex items-center gap-0.5 shrink-0" title="Menor preço cotado">
+                                          <Check className="w-2.5 h-2.5" /> Menor
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="bg-slate-100 text-slate-700 font-semibold border border-slate-200 rounded-lg px-2 py-1 flex items-center justify-center">
+                                        <span className="font-mono text-xs">
+                                          R$ {preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                    )
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 italic">Não cotado</span>
+                                  )}
+                                </td>
+
+                                {/* Coluna Qtd a Pedir */}
+                                <td className="p-2 text-center border-r border-slate-200 bg-amber-50/10">
+                                  {presente ? (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      placeholder="0"
+                                      value={qtd === 0 ? '' : qtd}
+                                      onChange={(e) =>
+                                        handleUpdateItemComparacao(
+                                          p.codigo,
+                                          forn.id,
+                                          'quantidadePedida',
+                                          Math.max(0, parseFloat(e.target.value) || 0)
+                                        )
+                                      }
+                                      className={`w-20 px-2 py-1 text-center font-mono font-bold text-xs rounded-lg border transition ${
+                                        qtd > 0
+                                          ? 'border-emerald-500 bg-emerald-50 text-emerald-950 ring-2 ring-emerald-300'
+                                          : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+                                      }`}
+                                    />
+                                  ) : (
+                                    <span className="text-slate-300 text-xs">-</span>
+                                  )}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+
+                  {/* Rodapé da Tabela: Totais por Fornecedor */}
+                  <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-xs">
+                    <tr>
+                      <td colSpan={3} className="p-3 text-right uppercase tracking-wider text-slate-600 border-r border-slate-200 font-black">
+                        Totais dos Pedidos por Fornecedor:
+                      </td>
+                      {dadosComparacao.fornecedores.map((forn) => {
+                        let totalItensFornecedor = 0;
+                        let totalValorFornecedor = 0;
+
+                        for (const prod of dadosComparacao.produtos) {
+                          const valObj = prod.valores[forn.id];
+                          if (valObj && valObj.quantidadePedida > 0) {
+                            totalItensFornecedor++;
+                            totalValorFornecedor += valObj.quantidadePedida * valObj.valorCotacao;
+                          }
+                        }
+
+                        return (
+                          <React.Fragment key={`tot-${forn.id}`}>
+                            <td className="p-2.5 text-center font-mono font-black text-emerald-800 border-r border-slate-200 bg-emerald-50/40">
+                              R$ {totalValorFornecedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-black text-slate-900 border-r border-slate-200 bg-amber-50/40">
+                              {totalItensFornecedor} item(s)
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsModalComparacaoOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+              >
+                Fechar Comparação
+              </button>
+
+              {(() => {
+                let totalGeralItens = 0;
+                let totalGeralValor = 0;
+                let fornecedoresComItens = 0;
+
+                for (const forn of dadosComparacao.fornecedores) {
+                  let temItens = false;
+                  for (const prod of dadosComparacao.produtos) {
+                    const valObj = prod.valores[forn.id];
+                    if (valObj && valObj.quantidadePedida > 0) {
+                      temItens = true;
+                      totalGeralItens++;
+                      totalGeralValor += valObj.quantidadePedida * valObj.valorCotacao;
+                    }
+                  }
+                  if (temItens) fornecedoresComItens++;
+                }
+
+                return (
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <span className="text-[11px] text-slate-500 block">
+                        {fornecedoresComItens} fornecedor(es) &bull; {totalGeralItens} produto(s)
+                      </span>
+                      <span className="text-sm font-black font-mono text-emerald-800">
+                        Total: R$ {totalGeralValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleConfirmarGerarPedidosComparativo}
+                      disabled={savingGerarPedidosComparativo || totalGeralItens === 0}
+                      className="px-6 py-2.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md flex items-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {savingGerarPedidosComparativo ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ShoppingCart className="w-4 h-4 text-emerald-200" />
+                      )}
+                      <span>Gerar Pedidos ({fornecedoresComItens})</span>
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

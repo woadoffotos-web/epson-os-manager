@@ -728,6 +728,154 @@ export async function POST(request: Request) {
     }
 
     // ================================================================
+    // AÇÃO 6.1.1: EDITAR COTAÇÃO EM ANDAMENTO (Valores e Quantidades)
+    // ================================================================
+    if (action === 'editar_cotacao_andamento') {
+      const { cotacaoId, itens = [], observacoes = '' } = body;
+
+      if (!cotacaoId) {
+        return NextResponse.json({ error: 'cotacaoId é obrigatório' }, { status: 400 });
+      }
+
+      let totalCalculado = 0;
+      const itensFormatados = (itens || []).map((item: any) => {
+        const qPed = parseFloat(item.quantidadePedida) || 0;
+        const vCot = parseFloat(item.valorCotacao) || 0;
+        const sub = qPed * vCot;
+        totalCalculado += sub;
+        return {
+          ...item,
+          quantidadePedida: qPed,
+          valorCotacao: vCot,
+          subtotal: sub,
+        };
+      });
+
+      const cotacaoAtualizada = await prisma.productQuotation.update({
+        where: { id: String(cotacaoId) },
+        data: {
+          itens: JSON.stringify(itensFormatados),
+          valorTotal: totalCalculado,
+          quantidadeItens: itensFormatados.length,
+          observacoes: observacoes !== undefined ? observacoes : undefined,
+          updatedAt: new Date(),
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Cotação nº ${cotacaoAtualizada.numero} atualizada com sucesso!`,
+        cotacao: {
+          ...cotacaoAtualizada,
+          itens: itensFormatados,
+        },
+      });
+    }
+
+    // ================================================================
+    // AÇÃO 6.1.2: GERAR PEDIDOS A PARTIR DO COMPARATIVO DE COTAÇÕES
+    // ================================================================
+    if (action === 'gerar_pedidos_comparativo') {
+      const { pedidos = [], criadoPor = 'Administrador' } = body;
+
+      if (!Array.isArray(pedidos) || pedidos.length === 0) {
+        return NextResponse.json(
+          { error: 'Nenhum dado de pedido fornecido para processamento.' },
+          { status: 400 }
+        );
+      }
+
+      const pedidosProcessados: any[] = [];
+
+      for (const p of pedidos) {
+        const itensValidos = (p.itens || []).filter((item: any) => {
+          const q = parseFloat(item.quantidadePedida) || 0;
+          return q > 0;
+        });
+
+        // Se este fornecedor não teve nenhum produto com quantidade a pedir, pula
+        if (itensValidos.length === 0) continue;
+
+        let totalPedido = 0;
+        const itensComConferencia = itensValidos.map((item: any) => {
+          const qPed = parseFloat(item.quantidadePedida) || 0;
+          const vCot = parseFloat(item.valorCotacao) || 0;
+          const sub = qPed * vCot;
+          totalPedido += sub;
+          return {
+            ...item,
+            quantidadePedida: qPed,
+            valorCotacao: vCot,
+            subtotal: sub,
+            quantidadeConferida: 0,
+            conferido: false,
+          };
+        });
+
+        if (p.cotacaoId) {
+          const atualizado = await prisma.productQuotation.update({
+            where: { id: String(p.cotacaoId) },
+            data: {
+              itens: JSON.stringify(itensComConferencia),
+              valorTotal: totalPedido,
+              quantidadeItens: itensComConferencia.length,
+              observacoes: p.observacoes || undefined,
+              status: 'AGUARDANDO_CHEGAR',
+              updatedAt: new Date(),
+            },
+          });
+          pedidosProcessados.push({
+            ...atualizado,
+            itens: itensComConferencia,
+          });
+        } else {
+          // Criação caso seja novo fornecedor
+          const lastQuotation = await prisma.productQuotation.findFirst({
+            orderBy: { sequencial: 'desc' },
+          });
+          const nextSeq = (lastQuotation?.sequencial ?? 0) + 1;
+          const numeroFormatado = String(nextSeq).padStart(4, '0');
+
+          const criado = await prisma.productQuotation.create({
+            data: {
+              numero: numeroFormatado,
+              sequencial: nextSeq,
+              nomeFornecedor: p.nomeFornecedor || 'Fornecedor',
+              fornecedorId: p.fornecedorId ? String(p.fornecedorId) : null,
+              valorTotal: totalPedido,
+              quantidadeItens: itensComConferencia.length,
+              observacoes: p.observacoes || '',
+              itens: JSON.stringify(itensComConferencia),
+              status: 'AGUARDANDO_CHEGAR',
+              criadoPor,
+            },
+          });
+          pedidosProcessados.push({
+            ...criado,
+            itens: itensComConferencia,
+          });
+        }
+      }
+
+      if (pedidosProcessados.length === 0) {
+        return NextResponse.json(
+          { error: 'Nenhum produto foi selecionado com quantidade a pedir maior que zero em nenhum fornecedor.' },
+          { status: 400 }
+        );
+      }
+
+      const fornecedoresResumo = pedidosProcessados
+        .map((p) => `${p.nomeFornecedor} (Pedido #${p.numero})`)
+        .join(', ');
+
+      return NextResponse.json({
+        success: true,
+        message: `${pedidosProcessados.length} pedido(s) gerado(s) com sucesso em Pedidos Feitos: ${fornecedoresResumo}!`,
+        pedidos: pedidosProcessados,
+      });
+    }
+
+    // ================================================================
     // AÇÃO 6.2: EXCLUIR COTAÇÃO EM ANDAMENTO
     // ================================================================
     if (action === 'excluir_cotacao') {

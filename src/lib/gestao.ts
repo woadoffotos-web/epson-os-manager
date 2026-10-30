@@ -5,12 +5,10 @@ import { prisma } from '@/lib/prisma';
  * Documentação: https://veteltec-gestaoclick.apiary.io/
  */
 
-const BASE_URL = 'https://api.gestaoclick.com';
+const BASE_URL = process.env.GESTAO_BASE_URL || 'https://api.gestaoclick.com';
 
-const ACCESS_TOKEN =
-  process.env.GESTAO_ACCESS_TOKEN || 'ad0ce86ce7b8b6dba8bac9355cced6826c7b0e3f';
-const SECRET_ACCESS_TOKEN =
-  process.env.GESTAO_SECRET_ACCESS_TOKEN || 'db75c272b019bff03daa51bfc9b7b0af633a3973';
+const ACCESS_TOKEN = process.env.GESTAO_ACCESS_TOKEN || '';
+const SECRET_ACCESS_TOKEN = process.env.GESTAO_SECRET_ACCESS_TOKEN || '';
 
 export async function fetchGestaoApi(path: string, options: RequestInit = {}) {
   const url = path.startsWith('http') ? path : `${BASE_URL}${path.startsWith('/') ? path : '/' + path}`;

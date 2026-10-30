@@ -20,6 +20,15 @@ yarn-debug.log*
 yarn-error.log*
 *.log
 
+# Database & Backups
+prisma/*.db
+prisma/*.db-journal
+prisma/*backup*.json
+prisma/dev.db
+prisma/data-backup.json
+*.db
+*.sqlite
+
 # OS metadata
 .DS_Store
 Thumbs.db

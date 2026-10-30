@@ -1,8 +1,16 @@
 import { SignJWT } from 'jose/jwt/sign';
 import { jwtVerify } from 'jose/jwt/verify';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'epson-csa-production-secret-token-2026-secure-key-9988';
-const key = new TextEncoder().encode(JWT_SECRET);
+const getJwtKey = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[SEGURANÇA CRÍTICA] JWT_SECRET não está configurado nas variáveis de ambiente em produção!');
+    }
+    return new TextEncoder().encode('epson-csa-dev-fallback-key-change-in-env-production-2026');
+  }
+  return new TextEncoder().encode(secret);
+};
 
 export const AUTH_COOKIE_NAME = 'epson_session_token';
 
@@ -28,7 +36,7 @@ export async function signSessionToken(user: SessionUser): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
-    .sign(key);
+    .sign(getJwtKey());
 }
 
 /**
@@ -36,7 +44,7 @@ export async function signSessionToken(user: SessionUser): Promise<string> {
  */
 export async function verifySessionToken(token: string): Promise<SessionUser | null> {
   try {
-    const { payload } = await jwtVerify(token, key, {
+    const { payload } = await jwtVerify(token, getJwtKey(), {
       algorithms: ['HS256'],
     });
 

@@ -169,21 +169,27 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     };
   }, [currentUser, triggerInactivityLogout]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const res = await fetch('/api/auth?action=users');
-      const data = await res.json();
-      if (data.users && data.users.length > 0) {
-        setAvailableUsers(data.users);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.users && data.users.length > 0) {
+          setAvailableUsers(data.users);
+        }
       }
     } catch (e) {
       console.error('Erro ao buscar usuários:', e);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'GERENTE')) {
+      fetchUsers();
+    } else {
+      setAvailableUsers([]);
+    }
+  }, [currentUser, fetchUsers]);
 
   const handleLoginSuccess = (user: any) => {
     sessionStorage.setItem('epson_tab_session', 'active');

@@ -3,14 +3,23 @@ import type { NextRequest } from 'next/server';
 import { verifySessionToken, AUTH_COOKIE_NAME } from '@/lib/jwt';
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, searchParams } = request.nextUrl;
 
-  // Interceptar apenas rotas de API protegidas (exceto login /api/auth)
-  if (!pathname.startsWith('/api/') || pathname.startsWith('/api/auth')) {
+  // Rotas que não são da API passam direto
+  if (!pathname.startsWith('/api/')) {
     return NextResponse.next();
   }
 
-  // 1. Extrair token do Cookie ou do Header Authorization
+  // 1. Endpoints públicos específicos de autenticação (login, logout, checar sessão própria)
+  const isPublicAuthAction =
+    pathname === '/api/auth' &&
+    ['login', 'logout', 'me'].includes(searchParams.get('action') || '');
+
+  if (isPublicAuthAction) {
+    return NextResponse.next();
+  }
+
+  // 2. Extrair token do Cookie ou do Header Authorization
   let token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) {
     const authHeader = request.headers.get('Authorization');
@@ -19,8 +28,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 2. Se for requisição direta de API e não tiver token válido
-  // Nota: permitimos se a requisição vier do próprio navegador autenticado
+  // 3. Validação do Token JWT Criptografado
   const user = token ? await verifySessionToken(token) : null;
   if (!user) {
     return NextResponse.json(
@@ -29,7 +37,31 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  // 3. Injetar cabeçalhos seguros verificados na requisição
+  const role = (user.role || '').toUpperCase();
+  const isAdminOrManager = role === 'ADMIN' || role === 'GERENTE';
+
+  // 4. Controle de Acesso Baseado em Função (RBAC)
+  // 4.1 Histórico de Auditoria: Apenas Administradores e Gerentes
+  if (pathname.startsWith('/api/audit-logs')) {
+    if (!isAdminOrManager) {
+      return NextResponse.json(
+        { error: 'Acesso negado: Somente administradores e gerentes podem visualizar a trilha de auditoria.' },
+        { status: 403 }
+      );
+    }
+  }
+
+  // 4.2 Configurações de Gestão (Criação/Edição/Exclusão de Situações e Modelos): Apenas Admin/Gerente
+  if (pathname.startsWith('/api/management') && ['POST', 'PUT', 'DELETE'].includes(request.method)) {
+    if (!isAdminOrManager) {
+      return NextResponse.json(
+        { error: 'Acesso negado: Somente administradores e gerentes podem alterar configurações do sistema.' },
+        { status: 403 }
+      );
+    }
+  }
+
+  // 5. Injetar cabeçalhos seguros verificados na requisição
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-user-id', user.id);
   requestHeaders.set('x-user-role', user.role);

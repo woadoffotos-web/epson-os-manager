@@ -28,27 +28,41 @@ async function getSessionUser(request: Request): Promise<SessionUser | null> {
   return await verifySessionToken(token);
 }
 
-// Rate Limiter em memória por IP para proteção contra força bruta distribuída (10 tentativas por 5 minutos)
-const loginIpAttempts = new Map<string, { count: number; firstAttempt: number }>();
+// Rate Limiter em memória por IP apenas para TENTATIVAS INCORRETAS (25 erros por 5 minutos)
+const loginIpAttempts = new Map<string, { failedCount: number; firstAttempt: number }>();
 
-function checkLoginRateLimit(ip: string): { allowed: boolean; remainingSeconds: number } {
+function isIpRateLimited(ip: string): { blocked: boolean; remainingSeconds: number } {
   const now = Date.now();
   const windowMs = 5 * 60 * 1000;
-  const maxAttempts = 10;
+  const maxFailed = 25;
 
   const record = loginIpAttempts.get(ip);
   if (!record || now - record.firstAttempt > windowMs) {
-    loginIpAttempts.set(ip, { count: 1, firstAttempt: now });
-    return { allowed: true, remainingSeconds: 0 };
+    return { blocked: false, remainingSeconds: 0 };
   }
 
-  record.count++;
-  if (record.count > maxAttempts) {
+  if (record.failedCount >= maxFailed) {
     const remainingSeconds = Math.ceil((windowMs - (now - record.firstAttempt)) / 1000);
-    return { allowed: false, remainingSeconds };
+    return { blocked: true, remainingSeconds };
   }
 
-  return { allowed: true, remainingSeconds: 0 };
+  return { blocked: false, remainingSeconds: 0 };
+}
+
+function recordIpFailure(ip: string) {
+  const now = Date.now();
+  const windowMs = 5 * 60 * 1000;
+  const record = loginIpAttempts.get(ip);
+
+  if (!record || now - record.firstAttempt > windowMs) {
+    loginIpAttempts.set(ip, { failedCount: 1, firstAttempt: now });
+  } else {
+    record.failedCount++;
+  }
+}
+
+function clearIpRateLimit(ip: string) {
+  loginIpAttempts.delete(ip);
 }
 
 export async function GET(request: Request) {
@@ -139,11 +153,11 @@ export async function POST(request: Request) {
         request.headers.get('x-real-ip') ||
         '127.0.0.1';
 
-      const rateCheck = checkLoginRateLimit(clientIp);
-      if (!rateCheck.allowed) {
+      const rateCheck = isIpRateLimited(clientIp);
+      if (rateCheck.blocked) {
         return NextResponse.json(
           {
-            error: `Muitas tentativas de login a partir deste IP. Por motivos de segurança, aguarde ${rateCheck.remainingSeconds} segundos antes de tentar novamente.`,
+            error: `Muitas tentativas incorretas a partir deste IP. Por segurança, aguarde ${rateCheck.remainingSeconds} segundos antes de tentar novamente.`,
           },
           { status: 429 }
         );
@@ -159,6 +173,7 @@ export async function POST(request: Request) {
       });
 
       if (!user) {
+        recordIpFailure(clientIp);
         return NextResponse.json(
           { error: 'Credenciais inválidas.' },
           { status: 401 }
@@ -189,6 +204,7 @@ export async function POST(request: Request) {
       const { isValid, needsRehash } = await verifyPassword(password, user.password);
 
       if (!isValid) {
+        recordIpFailure(clientIp);
         const nextAttempts = (user.failedAttempts || 0) + 1;
         const maxAttempts = 5;
         const isNowLocked = nextAttempts >= maxAttempts;
@@ -233,6 +249,7 @@ export async function POST(request: Request) {
       }
 
       // 4. Sucesso! Resetar tentativas e migrar hash se necessário
+      clearIpRateLimit(clientIp);
       const updatePayload: any = {
         failedAttempts: 0,
         lockedUntil: null,

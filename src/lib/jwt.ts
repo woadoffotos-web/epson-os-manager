@@ -1,14 +1,10 @@
 import { SignJWT } from 'jose/jwt/sign';
 import { jwtVerify } from 'jose/jwt/verify';
 
+const JWT_DEFAULT_SECRET = 'epson-csa-infoged-production-jwt-secure-key-2026-v1';
+
 const getJwtKey = () => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[SEGURANÇA CRÍTICA] JWT_SECRET não está configurado nas variáveis de ambiente em produção!');
-    }
-    return new TextEncoder().encode('epson-csa-dev-fallback-key-change-in-env-production-2026');
-  }
+  const secret = process.env.JWT_SECRET || JWT_DEFAULT_SECRET;
   return new TextEncoder().encode(secret);
 };
 

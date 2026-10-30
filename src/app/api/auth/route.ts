@@ -491,7 +491,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
   } catch (error: any) {
     console.error('Erro em POST /api/auth:', error);
-    return NextResponse.json({ error: 'Erro interno ao processar requisição.' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Erro interno ao processar requisição.' }, { status: 500 });
   }
 }
 
